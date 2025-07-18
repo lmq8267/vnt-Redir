@@ -96,15 +96,6 @@ impl Config {
         allow_wire_guard: bool,
         local_dev: Option<String>,
     ) -> anyhow::Result<Self> {
-        #[cfg(windows)]
-        #[cfg(feature = "integrated_tun")]
-        if !tap {
-            if let Err(e) = tun::Device::check_tun_dll() {
-                log::warn!("校验平台dll {:?}", e);
-                Err(e)?;
-            }
-        }
-
         for x in stun_server.iter_mut() {
             if !x.contains(":") {
                 x.push_str(":3478");
@@ -150,12 +141,28 @@ impl Config {
                 server_address_str = s.to_string();
                 protocol = ConnectProtocol::TCP;
             }
-            server_address = address_choose(dns_query_all(
+            let address_result = dns_query_all(
                 &server_address_str,
                 name_servers.clone(),
                 &LocalInterface::default(),
-            )?)?;
+            );
+            match address_result {
+                Ok(address) => match address_choose(address) {
+                    Ok(resolved_address) => {
+                        server_address = resolved_address;
+                    }
+                    Err(e) => {
+                        log::error!("Failed to choose address: {}", e);
+                        println!("Failed to choose address: {}", e);
+                    }
+                },
+                Err(e) => {
+                    log::error!("DNS query failed: {}", e);
+                    println!("DNS query failed: {}", e);
+                }
+            }
         }
+
         #[cfg(feature = "port_mapping")]
         let port_mapping_list = crate::port_mapping::convert(port_mapping_list)?;
 
