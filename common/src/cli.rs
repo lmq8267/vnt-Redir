@@ -40,7 +40,21 @@ pub fn app_home() -> io::Result<PathBuf> {
 }
 
 pub fn parse_args_config() -> anyhow::Result<Option<(Config, Vec<String>, bool)>> {
-    #[cfg(feature = "log")]
+    // Android 平台使用 android_logger
+    #[cfg(target_os = "android")]
+    {
+        use android_logger::Config;
+        use log::LevelFilter;
+        android_logger::init_once(
+            Config::default()
+                .with_max_level(LevelFilter::Info)
+                .with_tag("vnt_jni"),
+        );
+        log::info!("Android 日志系统已初始化");
+    }
+
+    // 其他平台使用 log4rs（如果启用了 log feature）
+    #[cfg(all(feature = "log", not(target_os = "android")))]
     let _ = log4rs::init_file("log4rs.yaml", Default::default());
     let args: Vec<String> = std::env::args().collect();
     let program = args[0].clone();
