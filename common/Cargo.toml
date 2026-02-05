@@ -18,6 +18,9 @@ gethostname = "0.4.3"
 uuid = { version = "1.8.0", features = ["v4"] }
 sys-locale = "0.3.1"
 
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.13"
+
 [features]
 default = []
 openssl = ["vnt/openssl"]
