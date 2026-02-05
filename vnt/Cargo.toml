@@ -46,7 +46,7 @@ zstd = { version = "0.13.1", optional = true }
 fnv = "1.0.7"
 igd = { version = "0.12.1", optional = true }
 tokio-tungstenite = { version = "0.23.1", optional = true }
-rustls = { version = "0.23.0", features = ["ring"], default-features = false, optional = true }
+rustls = { version = "0.23.0", features = ["ring", "tls12"], default-features = false, optional = true }
 
 network-interface = "2.0.0"
 
