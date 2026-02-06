@@ -18,25 +18,45 @@ use vnt::compression::Compressor;
 use vnt::core::Config;
 
 pub fn app_home() -> io::Result<PathBuf> {
-    let root_path = match std::env::current_exe() {
-        Ok(path) => {
-            if let Some(v) = path.as_path().parent() {
-                v.to_path_buf()
-            } else {
-                log::warn!("current_exe parent none:{:?}", path);
+    #[cfg(target_os = "android")]
+    {
+        // Android平台：使用固定的应用数据目录
+        // Flutter会在 /data/data/<package_name>/files 下创建logs目录
+        // 我们直接返回这个目录
+        let path = PathBuf::from("/data/data/top.wherewego.vnt_app/files");
+        if !path.exists() {
+            // 如果标准路径不存在，尝试使用备用路径
+            let fallback_path = PathBuf::from("/data/local/tmp/vnt");
+            if !fallback_path.exists() {
+                std::fs::create_dir_all(&fallback_path)?;
+            }
+            return Ok(fallback_path);
+        }
+        return Ok(path);
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let root_path = match std::env::current_exe() {
+            Ok(path) => {
+                if let Some(v) = path.as_path().parent() {
+                    v.to_path_buf()
+                } else {
+                    log::warn!("current_exe parent none:{:?}", path);
+                    PathBuf::new()
+                }
+            }
+            Err(e) => {
+                log::warn!("current_exe err:{:?}", e);
                 PathBuf::new()
             }
+        };
+        let path = root_path.join("env");
+        if !path.exists() {
+            std::fs::create_dir_all(&path)?;
         }
-        Err(e) => {
-            log::warn!("current_exe err:{:?}", e);
-            PathBuf::new()
-        }
-    };
-    let path = root_path.join("env");
-    if !path.exists() {
-        std::fs::create_dir_all(&path)?;
+        Ok(path)
     }
-    Ok(path)
 }
 
 pub fn parse_args_config() -> anyhow::Result<Option<(Config, Vec<String>, bool)>> {
