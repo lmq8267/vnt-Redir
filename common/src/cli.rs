@@ -18,94 +18,30 @@ use vnt::compression::Compressor;
 use vnt::core::Config;
 
 pub fn app_home() -> io::Result<PathBuf> {
-    #[cfg(target_os = "android")]
-    {
-        // Android平台：使用固定的应用数据目录
-        // Flutter会在 /data/data/<package_name>/files 下创建logs目录
-        // 我们直接返回这个目录
-        let path = PathBuf::from("/data/data/top.wherewego.vnt_app/files");
-        if !path.exists() {
-            // 如果标准路径不存在，尝试使用备用路径
-            let fallback_path = PathBuf::from("/data/local/tmp/vnt");
-            if !fallback_path.exists() {
-                std::fs::create_dir_all(&fallback_path)?;
-            }
-            return Ok(fallback_path);
-        }
-        return Ok(path);
-    }
-
-    #[cfg(not(target_os = "android"))]
-    {
-        let root_path = match std::env::current_exe() {
-            Ok(path) => {
-                if let Some(v) = path.as_path().parent() {
-                    v.to_path_buf()
-                } else {
-                    log::warn!("current_exe parent none:{:?}", path);
-                    PathBuf::new()
-                }
-            }
-            Err(e) => {
-                log::warn!("current_exe err:{:?}", e);
+    let root_path = match std::env::current_exe() {
+        Ok(path) => {
+            if let Some(v) = path.as_path().parent() {
+                v.to_path_buf()
+            } else {
+                log::warn!("current_exe parent none:{:?}", path);
                 PathBuf::new()
             }
-        };
-        let path = root_path.join("env");
-        if !path.exists() {
-            std::fs::create_dir_all(&path)?;
         }
-        Ok(path)
+        Err(e) => {
+            log::warn!("current_exe err:{:?}", e);
+            PathBuf::new()
+        }
+    };
+    let path = root_path.join("env");
+    if !path.exists() {
+        std::fs::create_dir_all(&path)?;
     }
+    Ok(path)
 }
 
 pub fn parse_args_config() -> anyhow::Result<Option<(Config, Vec<String>, bool)>> {
-    // 所有平台统一使用 log4rs 文件日志（包括Android）
-    // 使用代码方式配置，不依赖yaml文件，兼容鸿蒙系统
     #[cfg(feature = "log")]
-    {
-        use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
-        use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
-        use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
-        use log4rs::append::rolling_file::RollingFileAppender;
-        use log4rs::config::{Appender, Config as LogConfig, Root};
-        use log4rs::encode::pattern::PatternEncoder;
-        use log::LevelFilter;
-
-        // 确保logs目录存在
-        let logs_dir = std::path::Path::new("logs");
-        if !logs_dir.exists() {
-            let _ = std::fs::create_dir_all(logs_dir);
-        }
-
-        // 配置滚动策略：单个文件最大10MB，保留3个历史文件
-        let trigger = SizeTrigger::new(10 * 1024 * 1024); // 10MB
-        let roller = FixedWindowRoller::builder()
-            .build("logs/vnt-core.{}.log", 3)
-            .unwrap();
-        let policy = CompoundPolicy::new(Box::new(trigger), Box::new(roller));
-
-        // 配置日志格式
-        let pattern = "{d(%Y-%m-%d %H:%M:%S%.3f)} [{f}:{L}] {h({l})} {M}:{m}{n}{n}";
-        let encoder = PatternEncoder::new(pattern);
-
-        // 创建滚动文件appender
-        let rolling_file = RollingFileAppender::builder()
-            .encoder(Box::new(encoder))
-            .build("logs/vnt-core.log", Box::new(policy))
-            .unwrap();
-
-        // 构建log4rs配置
-        let config = LogConfig::builder()
-            .appender(Appender::builder().build("rolling_file", Box::new(rolling_file)))
-            .build(Root::builder().appender("rolling_file").build(LevelFilter::Info))
-            .unwrap();
-
-        // 初始化日志系统
-        let _ = log4rs::init_config(config);
-        log::info!("文件日志系统已初始化 (logs/vnt-core.log)");
-    }
-
+    let _ = log4rs::init_file("log4rs.yaml", Default::default());
     let args: Vec<String> = std::env::args().collect();
     let program = args[0].clone();
     let mut opts = Options::new();
