@@ -53,7 +53,7 @@ pub fn create_device<Call: VntCallback>(
 }
 
 fn create_device0(config: &DeviceConfig) -> io::Result<Arc<SyncDevice>> {
-    let mut tun_builder = tun_rs::DeviceBuilder::default();
+    let mut tun_builder = tun_rs::DeviceBuilder::new();
     tun_builder = tun_builder.ipv4(config.virtual_ip, config.virtual_netmask, None);
 
     match &config.device_name {
