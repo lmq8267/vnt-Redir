@@ -370,6 +370,7 @@ fn get_description(key: &str, language: &str) -> String {
         ("--no-proxy", ("关闭内置代理,如需点对网则需要配置网卡NAT转发", "Disable built-in proxy, configure network card NAT forwarding for point-to-point networking")),
         ("--first-latency", ("优先低延迟的通道,默认情况优先使用p2p通道", "Prioritize low-latency channels, defaults to prioritizing p2p channel")),
         ("--use-channel <p2p>", ("使用通道 relay/p2p/all,默认两者都使用", "Use channel relay/p2p/all, defaults to using both")),
+        ("--disable-relay", ("禁止为其他客户端转发数据,本机将不作为中继节点", "Disable relaying data for other clients, this device will not act as a relay node")),
         ("--nic <tun0>", ("指定虚拟网卡名称", "Specify virtual network card name")),
         ("--packet-loss <0>", ("模拟丢包,取值0~1之间的小数,程序会按设定的概率主动丢包,可用于模拟弱网", "Simulate packet loss, value between 0 and 1, program actively drops packets based on set probability, useful for simulating weak networks")),
         ("--packet-delay <0>", ("模拟延迟,正整数,单位毫秒,程序将根据设定值延迟发送数据包,可用于模拟弱网", "Simulate latency, integer, in milliseconds (ms). The program will delay sending packets according to the set value and can be used to simulate weak networks")),
@@ -519,6 +520,10 @@ fn print_usage(program: &str, _opts: Options) {
     println!(
         "  --use-channel <p2p> {}",
         get_description("--use-channel <p2p>", &language)
+    );
+    println!(
+        "  --disable-relay     {}",
+        get_description("--disable-relay", &language)
     );
     #[cfg(not(feature = "vn-link-model"))]
     println!(
