@@ -125,7 +125,7 @@ pub fn get_interface(dest_name: String) -> anyhow::Result<(LocalInterface, Ipv4A
             if iface.index == index {
                 for addr in &iface.addr {
                     if let IpAddr::V4(ip) = addr.ip() {
-                        log::info!("found interface by index {}: {} ({})", index, iface.name, ip);
+                        log::info!("按索引找到网卡接口 {}: {} ({})", index, iface.name, ip);
                         return Ok((
                             LocalInterface {
                                 index: iface.index,
@@ -145,7 +145,7 @@ pub fn get_interface(dest_name: String) -> anyhow::Result<(LocalInterface, Ipv4A
         if iface.name == dest_name {
             for addr in &iface.addr {
                 if let IpAddr::V4(ip) = addr.ip() {
-                    log::info!("found interface by name: {} ({})", iface.name, ip);
+                    log::info!("按名称找到网卡接口: {} ({})", iface.name, ip);
                     return Ok((
                         LocalInterface {
                             index: iface.index,
@@ -163,12 +163,12 @@ pub fn get_interface(dest_name: String) -> anyhow::Result<(LocalInterface, Ipv4A
     #[cfg(target_os = "windows")]
     {
         if let Ok((iface_index, iface_name, ip)) = get_interface_by_friendly_name(&dest_name) {
-            log::info!("found interface by friendly name '{}': {} index={} ({})", dest_name, iface_name, iface_index, ip);
+            log::info!("按友好名称找到网卡接口 '{}': {} index={} ({})", dest_name, iface_name, iface_index, ip);
             return Ok((LocalInterface { index: iface_index }, ip));
         }
     }
     
-    Err(anyhow!("No network card with name/index '{}' found", dest_name))
+    Err(anyhow!("未找到指定名称/索引的网卡接口 '{}' ", dest_name))
 }
 
 #[cfg(target_os = "windows")]
