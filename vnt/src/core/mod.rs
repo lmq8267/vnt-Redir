@@ -44,7 +44,6 @@ pub struct Config {
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
     pub device_name: Option<String>,
     pub use_channel_type: UseChannelType,
-    pub disable_relay: bool,
     //控制丢包率
     pub packet_loss_rate: Option<f64>,
     pub packet_delay: u32,
@@ -56,6 +55,7 @@ pub struct Config {
     pub allow_wire_guard: bool,
     pub local_ipv4: Option<Ipv4Addr>,
     pub local_interface: LocalInterface,
+    pub disable_relay: bool,
 }
 
 impl Config {
@@ -87,7 +87,6 @@ impl Config {
         #[cfg(not(target_os = "android"))]
         device_name: Option<String>,
         use_channel_type: UseChannelType,
-        disable_relay: bool,
         packet_loss_rate: Option<f64>,
         packet_delay: u32,
         // 例如 [udp:127.0.0.1:80->10.26.0.10:8080,tcp:127.0.0.1:80->10.26.0.10:8080]
@@ -97,6 +96,7 @@ impl Config {
         // 允许传递wg流量
         allow_wire_guard: bool,
         local_dev: Option<String>,
+        disable_relay: bool,
     ) -> anyhow::Result<Self> {
         for x in stun_server.iter_mut() {
             if !x.contains(":") {
@@ -209,7 +209,6 @@ impl Config {
             #[cfg(not(target_os = "android"))]
             device_name,
             use_channel_type,
-            disable_relay,
             packet_loss_rate,
             packet_delay,
             #[cfg(feature = "port_mapping")]
@@ -219,6 +218,7 @@ impl Config {
             allow_wire_guard,
             local_ipv4,
             local_interface,
+            disable_relay,
         })
     }
 }
