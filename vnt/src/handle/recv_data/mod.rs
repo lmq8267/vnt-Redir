@@ -94,6 +94,7 @@ impl<Call: VntCallback, Device: DeviceWrite> RecvDataHandler<Call, Device> {
         handshake: Handshake,
         #[cfg(feature = "integrated_tun")]
         tun_device_helper: crate::tun_tap_device::tun_create_helper::TunDeviceHelper,
+        disable_relay: bool,
     ) -> Self {
         let server = ServerPacketHandler::new(
             #[cfg(feature = "server_encrypt")]
@@ -121,7 +122,7 @@ impl<Call: VntCallback, Device: DeviceWrite> RecvDataHandler<Call, Device> {
             #[cfg(feature = "ip_proxy")]
             ip_proxy_map,
         );
-        let turn = TurnPacketHandler::new();
+        let turn = TurnPacketHandler::new(disable_relay);
         Self {
             current_device,
             turn,
