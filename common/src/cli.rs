@@ -324,7 +324,6 @@ pub fn parse_args_config() -> anyhow::Result<Option<(Config, Vec<String>, bool)>
             #[cfg(feature = "integrated_tun")]
             device_name,
             use_channel_type,
-            disable_relay,
             packet_loss,
             packet_delay,
             #[cfg(feature = "port_mapping")]
@@ -333,6 +332,7 @@ pub fn parse_args_config() -> anyhow::Result<Option<(Config, Vec<String>, bool)>
             !disable_stats,
             allow_wire_guard,
             local_dev,
+            disable_relay,
         )?;
         (config, vnt_mapping_list, cmd)
     };
