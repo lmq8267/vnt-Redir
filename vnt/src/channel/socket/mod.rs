@@ -118,15 +118,39 @@ pub fn bind_udp(
 
 pub fn get_interface(dest_name: String) -> anyhow::Result<(LocalInterface, Ipv4Addr)> {
     let network_interfaces = NetworkInterface::show()?;
-    for iface in network_interfaces {
+    
+    // 尝试作为接口索引解析
+    if let Ok(index) = dest_name.parse::<u32>() {
+        for iface in &network_interfaces {
+            if iface.index == index {
+                for addr in &iface.addr {
+                    if let IpAddr::V4(ip) = addr.ip() {
+                        log::info!("found interface by index {}: {} ({})", index, iface.name, ip);
+                        return Ok((
+                            LocalInterface {
+                                index: iface.index,
+                                #[cfg(unix)]
+                                name: Some(iface.name.clone()),
+                            },
+                            ip,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    
+    // 尝试作为网卡名称匹配（GUID 或 Unix 名称）
+    for iface in &network_interfaces {
         if iface.name == dest_name {
-            for addr in iface.addr {
+            for addr in &iface.addr {
                 if let IpAddr::V4(ip) = addr.ip() {
+                    log::info!("found interface by name: {} ({})", iface.name, ip);
                     return Ok((
                         LocalInterface {
                             index: iface.index,
                             #[cfg(unix)]
-                            name: Some(iface.name),
+                            name: Some(iface.name.clone()),
                         },
                         ip,
                     ));
@@ -134,7 +158,61 @@ pub fn get_interface(dest_name: String) -> anyhow::Result<(LocalInterface, Ipv4A
             }
         }
     }
-    Err(anyhow!("No network card with name {} found", dest_name))
+    
+    // Windows: 尝试通过友好名称查找
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok((iface_index, iface_name, ip)) = get_interface_by_friendly_name(&dest_name) {
+            log::info!("found interface by friendly name '{}': {} index={} ({})", dest_name, iface_name, iface_index, ip);
+            return Ok((LocalInterface { index: iface_index }, ip));
+        }
+    }
+    
+    Err(anyhow!("No network card with name/index '{}' found", dest_name))
+}
+
+#[cfg(target_os = "windows")]
+fn get_interface_by_friendly_name(friendly_name: &str) -> anyhow::Result<(u32, String, Ipv4Addr)> {
+    use std::process::Command;
+    
+    // 使用 netsh 获取接口信息
+    let output = Command::new("netsh")
+        .args(&["interface", "ipv4", "show", "interfaces"])
+        .output()?;
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    
+    // 解析输出找到匹配的友好名称
+    // 格式类似：
+    // Idx     Met         MTU          State                Name
+    // ---  ----------  ----------  ------------  ---------------------------
+    //   1          75  4294967295  connected     Loopback Pseudo-Interface 1
+    //  12          25        1500  connected     以太网
+    
+    for line in stdout.lines().skip(3) {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 5 {
+            if let Ok(idx) = parts[0].parse::<u32>() {
+                // 友好名称可能包含空格，从第5个字段开始拼接
+                let name = parts[4..].join(" ");
+                if name == friendly_name {
+                    // 找到索引后，通过 NetworkInterface 获取 IP 和 GUID
+                    let network_interfaces = NetworkInterface::show()?;
+                    for iface in network_interfaces {
+                        if iface.index == idx {
+                            for addr in iface.addr {
+                                if let IpAddr::V4(ip) = addr.ip() {
+                                    return Ok((idx, iface.name, ip));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    Err(anyhow!("Friendly name '{}' not found", friendly_name))
 }
 
 pub fn get_default_interface() -> anyhow::Result<(LocalInterface, Ipv4Addr)> {
