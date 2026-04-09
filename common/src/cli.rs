@@ -69,6 +69,7 @@ pub fn parse_args_config() -> anyhow::Result<Option<(Config, Vec<String>, bool)>
     opts.optflag("", "no-proxy", "关闭内置代理");
     opts.optflag("", "first-latency", "优先延迟");
     opts.optopt("", "use-channel", "使用通道 relay/p2p", "<use-channel>");
+    opts.optflag("", "disable-relay", "禁止为其他客户端转发数据流量");
     opts.optopt("", "packet-loss", "丢包率", "<packet-loss>");
     opts.optopt("", "packet-delay", "延迟", "<packet-delay>");
     opts.optmulti("", "dns", "dns", "<dns>");
@@ -264,6 +265,7 @@ pub fn parse_args_config() -> anyhow::Result<Option<(Config, Vec<String>, bool)>
                 }
             });
 
+        let disable_relay = matches.opt_present("disable-relay");
         let ports = matches
             .opt_get::<String>("ports")
             .unwrap_or(None)
@@ -322,6 +324,7 @@ pub fn parse_args_config() -> anyhow::Result<Option<(Config, Vec<String>, bool)>
             #[cfg(feature = "integrated_tun")]
             device_name,
             use_channel_type,
+            disable_relay,
             packet_loss,
             packet_delay,
             #[cfg(feature = "port_mapping")]
