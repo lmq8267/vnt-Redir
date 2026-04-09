@@ -268,6 +268,7 @@ impl VntInner {
             handshake.clone(),
             #[cfg(feature = "integrated_tun")]
             tun_device_helper,
+            config.disable_relay,
         );
 
         //初始化网络数据通道
