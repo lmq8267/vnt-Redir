@@ -178,13 +178,16 @@ impl Config {
             (default_interface, Some(ip))
         } else {
             // 自动获取默认路由的出口网卡
+            log::info!("未指定 --local-dev 参数，尝试自动检测默认出口网卡...");
             match crate::channel::socket::get_default_interface() {
                 Ok((default_interface, ip)) => {
-                    log::info!("auto detected default_interface = {:?} local_ip= {ip}", default_interface);
+                    log::info!("✓ 自动检测成功: default_interface = {:?} local_ip = {}", default_interface, ip);
                     (default_interface, Some(ip))
                 }
                 Err(e) => {
-                    log::warn!("failed to auto detect default interface: {:?}", e);
+                    log::warn!("✗ 自动检测失败: {:?}", e);
+                    log::warn!("将不绑定物理网卡，内置IP代理功能可能无效");
+                    log::warn!("建议手动指定: --local-dev <网卡名/索引>");
                     (LocalInterface::default(), None)
                 }
             }

@@ -253,27 +253,33 @@ pub fn get_default_interface() -> anyhow::Result<(LocalInterface, Ipv4Addr)> {
         let output = Command::new("route").args(&["print", "0.0.0.0"]).output()?;
         let stdout = String::from_utf8_lossy(&output.stdout);
         
+        log::debug!("route print 0.0.0.0 output:\n{}", stdout);
+        
         // 解析 "0.0.0.0          0.0.0.0     192.168.1.1   192.168.1.100     25"
         // 格式：Network Destination  Netmask  Gateway  Interface  Metric
         for line in stdout.lines() {
             let trimmed = line.trim();
             if trimmed.starts_with("0.0.0.0") {
+                log::debug!("found 0.0.0.0 line: {}", trimmed);
                 let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                log::debug!("parsed parts: {:?}", parts);
                 // 需要至少 5 个字段：目标 掩码 网关 接口 跃点
                 if parts.len() >= 5 && parts[0] == "0.0.0.0" && parts[1] == "0.0.0.0" {
                     // parts[3] 是接口 IP，通过它找到对应的网卡索引
                     if let Ok(interface_ip) = parts[3].parse::<Ipv4Addr>() {
+                        log::debug!("interface IP: {}", interface_ip);
                         let network_interfaces = NetworkInterface::show()?;
                         for iface in network_interfaces {
                             for addr in &iface.addr {
                                 if let IpAddr::V4(ip) = addr.ip() {
                                     if ip == interface_ip {
-                                        log::info!("自动检测到的 Windows 默认出口网卡: {} index={} ip={}", iface.name, iface.index, ip);
+                                        log::info!("自动检测到 Windows 默认出口网卡: {} index={} ip={}", iface.name, iface.index, ip);
                                         return Ok((LocalInterface { index: iface.index }, ip));
                                     }
                                 }
                             }
                         }
+                        log::warn!("找到接口 IP {} 但未匹配到网卡", interface_ip);
                     }
                 }
             }
