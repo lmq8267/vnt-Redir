@@ -136,3 +136,72 @@ pub fn get_interface(dest_name: String) -> anyhow::Result<(LocalInterface, Ipv4A
     }
     Err(anyhow!("No network card with name {} found", dest_name))
 }
+
+pub fn get_default_interface() -> anyhow::Result<(LocalInterface, Ipv4Addr)> {
+    use std::process::Command;
+    
+    #[cfg(target_os = "linux")]
+    {
+        let output = Command::new("ip").args(&["route", "show", "default"]).output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // 解析 "default via 192.168.1.1 dev eth0 ..."
+        for line in stdout.lines() {
+            if let Some(dev_pos) = line.find(" dev ") {
+                let after_dev = &line[dev_pos + 5..];
+                if let Some(dev_name) = after_dev.split_whitespace().next() {
+                    return get_interface(dev_name.to_string());
+                }
+            }
+        }
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("route").args(&["-n", "get", "default"]).output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // 解析 "interface: en0"
+        for line in stdout.lines() {
+            if line.trim().starts_with("interface:") {
+                if let Some(dev_name) = line.split(':').nth(1) {
+                    return get_interface(dev_name.trim().to_string());
+                }
+            }
+        }
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        // Windows 通过 route print 获取默认路由
+        let output = Command::new("route").args(&["print", "0.0.0.0"]).output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        
+        // 解析 "0.0.0.0          0.0.0.0     192.168.1.1   192.168.1.100     25"
+        // 格式：Network Destination  Netmask  Gateway  Interface  Metric
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("0.0.0.0") {
+                let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                // 需要至少 5 个字段：目标 掩码 网关 接口 跃点
+                if parts.len() >= 5 && parts[0] == "0.0.0.0" && parts[1] == "0.0.0.0" {
+                    // parts[3] 是接口 IP，通过它找到对应的网卡索引
+                    if let Ok(interface_ip) = parts[3].parse::<Ipv4Addr>() {
+                        let network_interfaces = NetworkInterface::show()?;
+                        for iface in network_interfaces {
+                            for addr in &iface.addr {
+                                if let IpAddr::V4(ip) = addr.ip() {
+                                    if ip == interface_ip {
+                                        log::info!("自动检测到的 Windows 默认出口网卡: {} index={} ip={}", iface.name, iface.index, ip);
+                                        return Ok((LocalInterface { index: iface.index }, ip));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        log::warn!("route print 命令输出无法解析到默认出口网卡，将不绑定至特定接口，内置IP代理功能可能无效");
+    }
+    
+    Err(anyhow!("未能检测到默认网络出口网卡接口，内置IP代理功能可能无效"))
+}

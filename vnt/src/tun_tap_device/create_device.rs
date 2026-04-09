@@ -25,9 +25,6 @@ pub fn create_device<Call: VntCallback>(
     let index = device.if_index().unwrap();
     #[cfg(unix)]
     let index = &device.name().unwrap();
-    if let Err(e) = add_route(index, config.virtual_network, config.virtual_netmask) {
-        log::warn!("添加默认路由失败 ={:?}", e);
-    }
     if let Err(e) = add_route(index, Ipv4Addr::BROADCAST, Ipv4Addr::BROADCAST) {
         log::warn!("添加广播路由失败 ={:?}", e);
     }

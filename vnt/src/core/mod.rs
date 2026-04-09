@@ -177,7 +177,17 @@ impl Config {
             log::info!("default_interface = {:?} local_ip= {ip}", default_interface);
             (default_interface, Some(ip))
         } else {
-            (LocalInterface::default(), None)
+            // 自动获取默认路由的出口网卡
+            match crate::channel::socket::get_default_interface() {
+                Ok((default_interface, ip)) => {
+                    log::info!("auto detected default_interface = {:?} local_ip= {ip}", default_interface);
+                    (default_interface, Some(ip))
+                }
+                Err(e) => {
+                    log::warn!("failed to auto detect default interface: {:?}", e);
+                    (LocalInterface::default(), None)
+                }
+            }
         };
         Ok(Self {
             #[cfg(feature = "integrated_tun")]
