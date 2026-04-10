@@ -75,6 +75,69 @@ impl VntCallback for IOSCallback {
     }
 }
 
+/// 初始化iOS日志系统
+#[no_mangle]
+pub extern "C" fn vnt_ios_init_log(log_dir: *const libc::c_char) -> i32 {
+    if log_dir.is_null() {
+        return -1;
+    }
+    
+    let log_dir_str = match unsafe { CStr::from_ptr(log_dir).to_str() } {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    
+    use log::LevelFilter;
+    use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
+    use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
+    use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
+    use log4rs::append::rolling_file::RollingFileAppender;
+    use log4rs::config::{Appender, Config, Root};
+    use log4rs::encode::pattern::PatternEncoder;
+    use std::path::PathBuf;
+    
+    let log_path = PathBuf::from(log_dir_str);
+    if !log_path.exists() {
+        if let Err(_) = std::fs::create_dir_all(&log_path) {
+            return -2;
+        }
+    }
+    
+    let log_file = log_path.join("vnt-core.log");
+    let trigger = SizeTrigger::new(10 * 1024 * 1024);
+    let roller_pattern = log_path.join("vnt-core.{}.log").to_string_lossy().to_string();
+    
+    let roller = match FixedWindowRoller::builder().build(&roller_pattern, 5) {
+        Ok(r) => r,
+        Err(_) => return -3,
+    };
+    
+    let policy = CompoundPolicy::new(Box::new(trigger), Box::new(roller));
+    let encoder = PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S%.3f)} [{f}:{L}] {h({l})} {M}:{m}{n}{n}");
+    
+    let appender = match RollingFileAppender::builder()
+        .encoder(Box::new(encoder))
+        .build(log_file, Box::new(policy)) {
+        Ok(a) => a,
+        Err(_) => return -4,
+    };
+    
+    let config = match Config::builder()
+        .appender(Appender::builder().build("rolling_file", Box::new(appender)))
+        .build(Root::builder().appender("rolling_file").build(LevelFilter::Info)) {
+        Ok(c) => c,
+        Err(_) => return -5,
+    };
+    
+    match log4rs::init_config(config) {
+        Ok(_) => {
+            log::info!("[iOS] 日志系统初始化成功: {}", log_dir_str);
+            0
+        }
+        Err(_) => -6,
+    }
+}
+
 /// 从文件描述符启动VNT隧道（iOS/tvOS）
 ///
 /// # 参数
@@ -103,10 +166,6 @@ pub extern "C" fn vnt_ios_start_tunnel(
     device_name: *const libc::c_char,
     mtu: i32,
 ) -> i32 {
-    // 初始化日志
-    let _ = log::set_logger(&crate::util::LOGGER)
-        .map(|()| log::set_max_level(log::LevelFilter::Info));
-
     log::info!("========================================");
     log::info!("[iOS] 启动VNT隧道");
     log::info!("[iOS] 文件描述符: {}", fd);
@@ -316,17 +375,17 @@ fn create_ios_config(
         None,                   // ip
         false,                  // no_proxy
         false,                  // server_encrypt
-        Default::default(),     // cipher_model
+        crate::cipher::CipherModel::AesGcm,  // cipher_model
         false,                  // finger
-        Default::default(),     // punch_model
+        crate::channel::punch::PunchModel::IPv4,  // punch_model
         None,                   // ports
         false,                  // first_latency
-        Default::default(),     // use_channel_type
+        crate::channel::UseChannelType::All,  // use_channel_type
         None,                   // packet_loss_rate
         0,                      // packet_delay
         #[cfg(feature = "port_mapping")]
         vec![],                 // port_mapping_list
-        Default::default(),     // compressor
+        crate::compression::Compressor::None,  // compressor
         false,                  // enable_traffic
         false,                  // allow_wire_guard
         None,                   // local_dev
