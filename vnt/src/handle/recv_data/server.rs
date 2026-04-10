@@ -115,7 +115,7 @@ impl<Call: VntCallback, Device: DeviceWrite> PacketHandler for ServerPacketHandl
             .update_read_time(&net_packet.source(), &route_key);
         if net_packet.protocol() == Protocol::Error
             && net_packet.transport_protocol()
-                == crate::protocol::error_packet::Protocol::NoKey.into() as u8
+                == u8::from(crate::protocol::error_packet::Protocol::NoKey)
         {
             //服务端通知客户端上传密钥
             #[cfg(feature = "server_encrypt")]
@@ -145,7 +145,7 @@ impl<Call: VntCallback, Device: DeviceWrite> PacketHandler for ServerPacketHandl
             }
             return Ok(());
         } else if net_packet.protocol() == Protocol::Service
-            && net_packet.transport_protocol() == service_packet::Protocol::HandshakeResponse.into() as u8
+            && net_packet.transport_protocol() == u8::from(service_packet::Protocol::HandshakeResponse)
         {
             let response = HandshakeResponse::parse_from_bytes(net_packet.payload())
                 .map_err(|e| anyhow!("HandshakeResponse {:?}", e))?;
