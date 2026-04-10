@@ -380,6 +380,7 @@ fn create_ios_config(
         crate::channel::punch::PunchModel::IPv4,  // punch_model
         None,                   // ports
         false,                  // first_latency
+        None,                   // device_name
         crate::channel::UseChannelType::All,  // use_channel_type
         None,                   // packet_loss_rate
         0,                      // packet_delay
