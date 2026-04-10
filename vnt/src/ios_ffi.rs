@@ -2,7 +2,7 @@
 // 用于从Swift的NEPacketTunnelProvider调用Rust代码
 // 完整实现，支持后台保活和异常清理
 
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::os::unix::io::RawFd;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -103,10 +103,9 @@ pub extern "C" fn vnt_ios_start_tunnel(
     device_name: *const libc::c_char,
     mtu: i32,
 ) -> i32 {
-    // 初始化日志（如果尚未初始化）
-    let _ = env_logger::Builder::from_default_env()
-        .filter_level(log::LevelFilter::Info)
-        .try_init();
+    // 初始化日志
+    let _ = log::set_logger(&crate::util::LOGGER)
+        .map(|()| log::set_max_level(log::LevelFilter::Info));
 
     log::info!("========================================");
     log::info!("[iOS] 启动VNT隧道");
@@ -192,7 +191,12 @@ pub extern "C" fn vnt_ios_start_tunnel(
 
     // 使用设备启动VNT
     log::info!("[iOS] 正在启动VNT核心...");
-    match Vnt::new_device(config, callback, device) {
+    #[cfg(feature = "integrated_tun")]
+    let result = Vnt::new(config, callback);
+    #[cfg(not(feature = "integrated_tun"))]
+    let result = Vnt::new_device(config, callback, device);
+    
+    match result {
         Ok(vnt) => {
             log::info!("[iOS] VNT核心启动成功");
             
@@ -277,10 +281,7 @@ pub extern "C" fn vnt_ios_set_log_level(level: i32) {
         _ => log::LevelFilter::Info,
     };
 
-    let _ = env_logger::Builder::from_default_env()
-        .filter_level(log_level)
-        .try_init();
-
+    log::set_max_level(log_level);
     log::info!("[iOS] 日志级别设置为: {:?}", log_level);
 }
 
@@ -293,7 +294,6 @@ fn create_ios_config(
 ) -> anyhow::Result<Config> {
     use uuid::Uuid;
 
-    // 生成设备ID（使用UUID）
     let device_id = format!("ios-{}", Uuid::new_v4());
 
     log::info!("[iOS] 配置参数:");
@@ -314,6 +314,7 @@ fn create_ios_config(
         None,                   // password
         Some(mtu),              // mtu
         None,                   // ip
+        false,                  // no_proxy
         false,                  // server_encrypt
         Default::default(),     // cipher_model
         false,                  // finger
@@ -323,6 +324,8 @@ fn create_ios_config(
         Default::default(),     // use_channel_type
         None,                   // packet_loss_rate
         0,                      // packet_delay
+        #[cfg(feature = "port_mapping")]
+        vec![],                 // port_mapping_list
         Default::default(),     // compressor
         false,                  // enable_traffic
         false,                  // allow_wire_guard
