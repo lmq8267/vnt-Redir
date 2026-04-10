@@ -48,18 +48,6 @@ impl Vnt {
         callback: Call,
         device: Device,
     ) -> anyhow::Result<Self> {
-        let inner = Arc::new(VntInner::new_device(config, callback, device)?);
-        Ok(Self { inner })
-    }
-    
-    /// iOS/tvOS专用：使用外部提供的设备创建VNT实例
-    /// 此方法允许从NEPacketTunnelProvider获取的文件描述符创建设备
-    #[cfg(any(target_os = "ios", target_os = "tvos"))]
-    pub fn new_with_device<Call: VntCallback, Device: DeviceWrite>(
-        config: Config,
-        callback: Call,
-        device: Device,
-    ) -> anyhow::Result<Self> {
         let inner = Arc::new(VntInner::new_device0(config, callback, device)?);
         Ok(Self { inner })
     }
