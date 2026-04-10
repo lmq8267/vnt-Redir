@@ -21,6 +21,10 @@ pub use handle::callback::*;
 pub mod compression;
 pub use packet;
 
+// iOS/tvOS FFI接口
+#[cfg(any(target_os = "ios", target_os = "tvos"))]
+pub mod ios_ffi;
+
 pub(crate) fn ignore_io_interrupted(e: std::io::Error) -> std::io::Result<()> {
     if e.kind() == std::io::ErrorKind::Interrupted {
         log::warn!("ignore_io_interrupted");
