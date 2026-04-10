@@ -48,11 +48,6 @@ impl VntCallback for IOSCallback {
         log::info!("[iOS] VNT启动成功");
     }
 
-    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-    fn create_tun(&self, info: crate::handle::callback::DeviceInfo) {
-        log::info!("[iOS] 创建TUN设备: {:?}", info);
-    }
-
     fn connect(&self, info: crate::handle::callback::ConnectInfo) {
         log::info!("[iOS] 连接到服务器: {:?}", info);
     }
@@ -65,17 +60,6 @@ impl VntCallback for IOSCallback {
     fn register(&self, info: crate::handle::callback::RegisterInfo) -> bool {
         log::info!("[iOS] 注册信息: 虚拟IP={}, 网关={}", info.virtual_ip, info.virtual_gateway);
         true
-    }
-
-    #[cfg(target_os = "android")]
-    fn create_device(&self, info: crate::handle::callback::DeviceConfig) {
-        log::info!("[iOS] 创建设备配置: {:?}", info);
-    }
-
-    #[cfg(target_os = "android")]
-    fn generate_tun(&self, info: crate::handle::callback::DeviceConfig) -> usize {
-        log::info!("[iOS] 生成TUN: {:?}", info);
-        0
     }
 
     fn peer_client_list(&self, info: Vec<crate::handle::callback::PeerClientInfo>) {
