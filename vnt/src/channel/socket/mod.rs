@@ -54,6 +54,7 @@ pub fn create_tcp0(
         )?
     };
     if v4 {
+        #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
         if let Err(e) = socket.set_ip_unicast_if(default_interface) {
             log::warn!("set_ip_unicast_if {:?}", e)
         }
@@ -90,6 +91,7 @@ pub fn bind_udp_ops(
             socket2::Type::DGRAM,
             Some(Protocol::UDP),
         )?;
+        #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
         if let Err(e) = socket.set_ip_unicast_if(default_interface) {
             log::warn!("set_ip_unicast_if {:?}", e)
         }
