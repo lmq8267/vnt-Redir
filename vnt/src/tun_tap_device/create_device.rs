@@ -1,3 +1,4 @@
+// 改进的虚拟网卡创建流程（集成防火墙和网卡管理）
 use std::io;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
@@ -19,11 +20,11 @@ pub fn create_device<Call: VntCallback>(
             .as_deref()
             .unwrap_or(DEFAULT_TUN_NAME);
         
-        log::info!("Windows 平台：准备创建虚拟网卡 {}", device_name);
+        log::info!("准备创建虚拟网卡: {}", device_name);
         
         // 1. 清理已存在的同名网卡
         let adapter_manager = crate::tun_tap_device::windows_adapter::WindowsAdapterManager::new(device_name);
-        if let Err(e) = adapter_manager.cleanup_before_start() {
+        if let Err(e) = adapter_manager.check_and_cleanup() {
             log::warn!("清理旧网卡失败: {:?}", e);
             call.error(ErrorInfo::new_msg(
                 ErrorType::Warn,
@@ -32,9 +33,14 @@ pub fn create_device<Call: VntCallback>(
         }
     }
     
+    // 2. 创建虚拟网卡
     let device = match create_device0(&config) {
-        Ok(device) => device,
+        Ok(device) => {
+            log::info!("虚拟网卡创建成功");
+            device
+        }
         Err(e) => {
+            log::error!("虚拟网卡创建失败: {:?}", e);
             return Err(ErrorInfo::new_msg(
                 ErrorType::FailedToCrateDevice,
                 format!("创建虚拟网卡失败: {:?}", e),
@@ -49,8 +55,6 @@ pub fn create_device<Call: VntCallback>(
             .as_deref()
             .unwrap_or(DEFAULT_TUN_NAME);
         
-        log::info!("Windows 平台：配置防火墙规则");
-        
         let firewall_manager = crate::tun_tap_device::windows_firewall::WindowsFirewallManager::new(device_name);
         if let Err(e) = firewall_manager.configure_all() {
             log::warn!("配置防火墙失败: {:?}", e);
@@ -58,8 +62,6 @@ pub fn create_device<Call: VntCallback>(
                 ErrorType::Warn,
                 format!("警告：无法自动配置防火墙规则: {:?}\n可能需要手动放行或以管理员身份运行", e),
             ));
-        } else {
-            log::info!("Windows 防火墙配置成功");
         }
     }
     
@@ -106,18 +108,11 @@ pub fn create_device<Call: VntCallback>(
 }
 
 fn create_device0(config: &DeviceConfig) -> io::Result<Arc<SyncDevice>> {
-    // iOS/tvOS平台：从文件描述符创建设备
-    // 文件描述符应该通过FFI从Swift的NEPacketTunnelProvider传入
     #[cfg(any(target_os = "ios", target_os = "tvos"))]
     {
-        // 注意：在iOS/tvOS上，设备必须从外部提供的文件描述符创建
-        // 这个文件描述符来自NEPacketTunnelProvider.packetFlow
-        // 实际使用时，应该通过FFI接口传入fd，这里返回错误提示
         return Err(io::Error::new(
             io::ErrorKind::Unsupported,
-            "iOS/tvOS平台不支持直接创建TUN设备。\
-             请使用SyncDevice::from_fd()从NEPacketTunnelProvider获取的文件描述符创建设备。\
-             参考文档: tun-rs/docs/iOS-Integration.md"
+            "iOS/tvOS平台不支持直接创建TUN设备"
         ));
     }
     
@@ -166,7 +161,6 @@ fn create_device0(config: &DeviceConfig) -> io::Result<Arc<SyncDevice>> {
 
 #[cfg(target_os = "linux")]
 fn delete_device(name: &str) {
-    // 删除默认网卡，此操作有风险，后续可能去除
     use std::process::Command;
     let cmd = format!("ip link delete {}", name);
     let delete_tun = Command::new("sh")
@@ -178,6 +172,7 @@ fn delete_device(name: &str) {
         log::warn!("删除网卡失败:{:?}", delete_tun);
     }
 }
+
 #[cfg(windows)]
 fn delete_adapter_info_from_reg(dev_name: &str) -> std::io::Result<()> {
     use std::collections::HashSet;
@@ -242,18 +237,14 @@ fn delete_adapter_info_from_reg(dev_name: &str) -> std::io::Result<()> {
 pub fn add_route(index: u32, dest: Ipv4Addr, netmask: Ipv4Addr) -> io::Result<()> {
     let cmd = format!(
         "route add {:?} mask {:?} {:?} metric {} if {}",
-        dest,
-        netmask,
-        Ipv4Addr::UNSPECIFIED,
-        1,
-        index
+        dest, netmask, Ipv4Addr::UNSPECIFIED, 1, index
     );
     exe_cmd(&cmd)
 }
+
 #[cfg(target_os = "windows")]
 pub fn exe_cmd(cmd: &str) -> io::Result<()> {
     use std::os::windows::process::CommandExt;
-
     println!("exe cmd: {}", cmd);
     let out = std::process::Command::new("cmd")
         .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW)
@@ -271,23 +262,13 @@ pub fn exe_cmd(cmd: &str) -> io::Result<()> {
 
 #[cfg(target_os = "macos")]
 pub fn add_route(name: &str, address: Ipv4Addr, netmask: Ipv4Addr) -> io::Result<()> {
-    let cmd = format!(
-        "route -n add {} -netmask {} -interface {}",
-        address, netmask, name
-    );
+    let cmd = format!("route -n add {} -netmask {} -interface {}", address, netmask, name);
     exe_cmd(&cmd)?;
     Ok(())
 }
 
-// iOS/tvOS平台：路由由NEPacketTunnelProvider的NEPacketTunnelNetworkSettings管理
-// 不需要手动添加路由，这个函数仅用于兼容性
 #[cfg(any(target_os = "ios", target_os = "tvos"))]
 pub fn add_route(_name: &str, _address: Ipv4Addr, _netmask: Ipv4Addr) -> io::Result<()> {
-    // iOS/tvOS上路由通过NEPacketTunnelNetworkSettings配置
-    // 在Swift代码中通过以下方式设置：
-    // let ipv4Settings = NEIPv4Settings(addresses: [...], subnetMasks: [...])
-    // ipv4Settings.includedRoutes = [NEIPv4Route(...)]
-    // tunnelNetworkSettings.ipv4Settings = ipv4Settings
     log::debug!("iOS/tvOS平台：路由配置由NEPacketTunnelProvider管理");
     Ok(())
 }
@@ -297,30 +278,19 @@ pub fn add_route(name: &str, address: Ipv4Addr, netmask: Ipv4Addr) -> io::Result
     let cmd = if netmask.is_broadcast() {
         format!("route add -host {:?} {}", address, name)
     } else {
-        format!(
-            "route add -net {}/{} {}",
-            address,
-            u32::from(netmask).count_ones(),
-            name
-        )
+        format!("route add -net {}/{} {}", address, u32::from(netmask).count_ones(), name)
     };
     exe_cmd(&cmd)?;
     Ok(())
 }
+
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub fn exe_cmd(cmd: &str) -> io::Result<std::process::Output> {
     use std::process::Command;
     println!("exe cmd: {}", cmd);
-    let out = Command::new("sh")
-        .arg("-c")
-        .arg(cmd)
-        .output()
-        .expect("sh exec error!");
+    let out = Command::new("sh").arg("-c").arg(cmd).output().expect("sh exec error!");
     if !out.status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("cmd={},out={:?}", cmd, out),
-        ));
+        return Err(io::Error::new(io::ErrorKind::Other, format!("cmd={},out={:?}", cmd, out)));
     }
     Ok(out)
 }
