@@ -534,6 +534,26 @@ impl VntInner {
 
 impl Drop for VntInner {
     fn drop(&mut self) {
+        log::info!("VNT 正在退出，清理资源...");
+        
+        // Windows 平台：清理防火墙规则
+        #[cfg(target_os = "windows")]
+        {
+            let device_name = self.config.device_name
+                .as_deref()
+                .unwrap_or("vnt-tun");
+            
+            log::info!("Windows 平台：清理防火墙规则");
+            
+            let firewall_manager = crate::tun_tap_device::windows_firewall::WindowsFirewallManager::new(device_name);
+            if let Err(e) = firewall_manager.cleanup_all() {
+                log::warn!("清理防火墙规则失败: {:?}", e);
+            } else {
+                log::info!("防火墙规则已清理");
+            }
+        }
+        
         self.stop();
+        log::info!("VNT 已退出");
     }
 }

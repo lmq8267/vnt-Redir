@@ -12,15 +12,56 @@ pub fn create_device<Call: VntCallback>(
     config: DeviceConfig,
     call: &Call,
 ) -> Result<Arc<SyncDevice>, ErrorInfo> {
+    // Windows 平台：启动前清理和准备
+    #[cfg(target_os = "windows")]
+    {
+        let device_name = config.device_name
+            .as_deref()
+            .unwrap_or(DEFAULT_TUN_NAME);
+        
+        log::info!("Windows 平台：准备创建虚拟网卡 {}", device_name);
+        
+        // 1. 清理已存在的同名网卡
+        let adapter_manager = crate::tun_tap_device::windows_adapter::WindowsAdapterManager::new(device_name);
+        if let Err(e) = adapter_manager.cleanup_before_start() {
+            log::warn!("清理旧网卡失败: {:?}", e);
+            call.error(ErrorInfo::new_msg(
+                ErrorType::Warn,
+                format!("警告：清理旧网卡失败: {:?}", e),
+            ));
+        }
+    }
+    
     let device = match create_device0(&config) {
         Ok(device) => device,
         Err(e) => {
             return Err(ErrorInfo::new_msg(
                 ErrorType::FailedToCrateDevice,
-                format!("create device {:?}", e),
+                format!("创建虚拟网卡失败: {:?}", e),
             ));
         }
     };
+    
+    // Windows 平台：配置防火墙
+    #[cfg(target_os = "windows")]
+    {
+        let device_name = config.device_name
+            .as_deref()
+            .unwrap_or(DEFAULT_TUN_NAME);
+        
+        log::info!("Windows 平台：配置防火墙规则");
+        
+        let firewall_manager = crate::tun_tap_device::windows_firewall::WindowsFirewallManager::new(device_name);
+        if let Err(e) = firewall_manager.configure_all() {
+            log::warn!("配置防火墙失败: {:?}", e);
+            call.error(ErrorInfo::new_msg(
+                ErrorType::Warn,
+                format!("警告：无法自动配置防火墙规则: {:?}\n可能需要手动放行或以管理员身份运行", e),
+            ));
+        } else {
+            log::info!("Windows 防火墙配置成功");
+        }
+    }
     
     // iOS/tvOS平台的路由由NEPacketTunnelProvider管理，无需手动配置
     #[cfg(any(target_os = "ios", target_os = "tvos"))]
