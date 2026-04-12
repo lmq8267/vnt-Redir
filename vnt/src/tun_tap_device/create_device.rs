@@ -13,7 +13,7 @@ pub fn create_device<Call: VntCallback>(
     call: &Call,
 ) -> Result<Arc<SyncDevice>, ErrorInfo> {
     // Windows 平台：启动前清理和准备
-    #[cfg(target_os = "windows")]
+    #[cfg(all(target_os = "windows", feature = "integrated_tun"))]
     {
         let device_name = config.device_name
             .as_deref()
@@ -43,7 +43,7 @@ pub fn create_device<Call: VntCallback>(
     };
     
     // Windows 平台：配置防火墙
-    #[cfg(target_os = "windows")]
+    #[cfg(all(target_os = "windows", feature = "integrated_tun"))]
     {
         let device_name = config.device_name
             .as_deref()
