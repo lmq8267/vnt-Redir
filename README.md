@@ -8,6 +8,39 @@
 
 ### vnt-cli参数详解 [参数说明](https://github.com/vnt-dev/vnt/blob/main/vnt-cli/README.md)
 
+**控制台输出日志**
+
+- 创建一个`log4rs.yaml`文件，和`vnt-cli`二进制程序放在一起运行即可在控制台输出日志内容方便调试，内容如下：
+
+```yaml
+refresh_rate: 30 seconds
+
+appenders:
+  console:
+    kind: console
+    encoder:
+      pattern: "{d(%Y-%m-%d %H:%M:%S.%3f)} [{f}:{L}] {h({l})} {M}:{m}{n}{n}"
+
+root:
+  level: info
+  appenders:
+    - console
+
+loggers:
+  # 可针对你的 crate 单独调试
+  vnt_cli:
+    level: debug
+    appenders:
+      - console
+    additive: false
+
+  vnt:
+    level: info
+
+  common:
+    level: info
+```
+
 ### 快速开始：
 
 1. 指定一个token，在多台设备上运行该程序，例如：
