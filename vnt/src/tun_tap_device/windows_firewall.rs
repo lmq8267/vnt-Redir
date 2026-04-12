@@ -6,7 +6,7 @@ use std::os::windows::ffi::OsStrExt;
 use windows_sys::Win32::System::Com::*;
 use windows_sys::Win32::NetworkManagement::IpHelper::{GetAdaptersAddresses, IP_ADAPTER_ADDRESSES_LH, GAA_FLAG_INCLUDE_PREFIX};
 use windows_sys::Win32::Networking::WinSock::AF_UNSPEC;
-use windows_sys::core::{GUID, BSTR, PCWSTR};
+use windows_sys::core::{GUID, BSTR};
 
 type IUnknown = std::ffi::c_void;
 

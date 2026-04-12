@@ -91,7 +91,7 @@ impl WindowsAdapterManager {
         };
         
         let dev_info = SetupDiGetClassDevsW(&class_guid, ptr::null(), ptr::null_mut(), DIGCF_PRESENT);
-        if dev_info == INVALID_HANDLE_VALUE {
+        if dev_info as isize == -1 {
             return Err(io::Error::new(io::ErrorKind::Other, "无法获取设备列表"));
         }
 
