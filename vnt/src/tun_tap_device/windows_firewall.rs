@@ -6,7 +6,9 @@ use std::os::windows::ffi::OsStrExt;
 use windows_sys::Win32::System::Com::*;
 use windows_sys::Win32::NetworkManagement::IpHelper::*;
 use windows_sys::Win32::Networking::WinSock::AF_UNSPEC;
-use windows_sys::core::*;
+use windows_sys::core::{GUID, BSTR};
+
+type IUnknown = std::ffi::c_void;
 
 const CLSID_NETFWPOLICY2: GUID = GUID { data1: 0xE2B3C97F, data2: 0x6AE1, data3: 0x41AC, data4: [0x81, 0x7A, 0xF6, 0xF9, 0x21, 0x66, 0xD7, 0xDD] };
 const IID_INETFWPOLICY2: GUID = GUID { data1: 0x98325047, data2: 0xC671, data3: 0x4174, data4: [0x8D, 0x81, 0xDE, 0xFC, 0xD3, 0xF0, 0x31, 0x86] };
@@ -76,7 +78,7 @@ impl WindowsFirewallManager {
         log::info!("正在配置 Windows 防火墙规则...");
         
         unsafe {
-            if CoInitializeEx(ptr::null_mut(), COINIT_APARTMENTTHREADED) < 0 {
+            if CoInitializeEx(ptr::null_mut(), COINIT_APARTMENTTHREADED as u32) < 0 {
                 log::warn!("COM 初始化失败，跳过防火墙配置");
                 return Ok(());
             }
@@ -100,7 +102,7 @@ impl WindowsFirewallManager {
     pub fn cleanup_all(&self) -> io::Result<()> {
         log::info!("正在清理 Windows 防火墙规则...");
         unsafe {
-            if CoInitializeEx(ptr::null_mut(), COINIT_APARTMENTTHREADED) >= 0 {
+            if CoInitializeEx(ptr::null_mut(), COINIT_APARTMENTTHREADED as u32) >= 0 {
                 let _ = self.remove_existing_rules();
                 CoUninitialize();
             }

@@ -6,6 +6,7 @@ use windows_sys::Win32::NetworkManagement::IpHelper::*;
 use windows_sys::Win32::Networking::WinSock::AF_UNSPEC;
 use windows_sys::Win32::Devices::DeviceAndDriverInstallation::*;
 use windows_sys::Win32::Foundation::*;
+use windows_sys::core::GUID;
 
 pub struct WindowsAdapterManager {
     device_name: String,
@@ -89,8 +90,8 @@ impl WindowsAdapterManager {
             data4: [0xbf, 0xc1, 0x08, 0x00, 0x2b, 0xe1, 0x03, 0x18] 
         };
         
-        let dev_info = SetupDiGetClassDevsW(&class_guid, ptr::null(), 0, DIGCF_PRESENT);
-        if dev_info == INVALID_HANDLE_VALUE {
+        let dev_info = SetupDiGetClassDevsW(&class_guid, ptr::null(), ptr::null_mut(), DIGCF_PRESENT);
+        if dev_info as isize == INVALID_HANDLE_VALUE {
             return Err(io::Error::new(io::ErrorKind::Other, "无法获取设备列表"));
         }
 
