@@ -4,11 +4,27 @@ use std::ptr;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use windows_sys::Win32::System::Com::*;
-use windows_sys::Win32::NetworkManagement::IpHelper::*;
+use windows_sys::Win32::NetworkManagement::IpHelper::{GetAdaptersAddresses, IP_ADAPTER_ADDRESSES_LH, GAA_FLAG_INCLUDE_PREFIX};
 use windows_sys::Win32::Networking::WinSock::AF_UNSPEC;
-use windows_sys::core::{GUID, BSTR};
+use windows_sys::core::{GUID, BSTR, PCWSTR};
 
 type IUnknown = std::ffi::c_void;
+
+unsafe fn sys_alloc_string(s: *const u16) -> BSTR {
+    let len = (0..).take_while(|&i| *s.offset(i) != 0).count();
+    let bstr = CoTaskMemAlloc((len + 1) * 2) as *mut u16;
+    if !bstr.is_null() {
+        ptr::copy_nonoverlapping(s, bstr, len);
+        *bstr.offset(len as isize) = 0;
+    }
+    bstr
+}
+
+unsafe fn sys_free_string(bstr: BSTR) {
+    if !bstr.is_null() {
+        CoTaskMemFree(bstr as _);
+    }
+}
 
 const CLSID_NETFWPOLICY2: GUID = GUID { data1: 0xE2B3C97F, data2: 0x6AE1, data3: 0x41AC, data4: [0x81, 0x7A, 0xF6, 0xF9, 0x21, 0x66, 0xD7, 0xDD] };
 const IID_INETFWPOLICY2: GUID = GUID { data1: 0x98325047, data2: 0xC671, data3: 0x4174, data4: [0x8D, 0x81, 0xDE, 0xFC, 0xD3, 0xF0, 0x31, 0x86] };
@@ -171,12 +187,13 @@ impl WindowsFirewallManager {
             for name in &[&self.app_rule_name, &format!("{} Out", self.app_rule_name), 
                           &self.interface_rule_in, &self.interface_rule_out] {
                 let name_wide: Vec<u16> = OsStr::new(name).encode_wide().chain(Some(0)).collect();
-                let bstr = SysAllocString(name_wide.as_ptr());
+                let bstr = sys_alloc_string(name_wide.as_ptr());
                 let _ = ((*rules_vtbl).remove)(rules, bstr);
-                SysFreeString(bstr);
+                sys_free_string(bstr);
             }
             ((*rules_vtbl).release)(rules);
         }
+        ((*vtbl).release)(policy);
         ((*vtbl).release)(policy);
         Ok(())
     }
@@ -207,22 +224,23 @@ impl WindowsFirewallManager {
         let mut rule: *mut IUnknown = ptr::null_mut();
         if CoCreateInstance(&CLSID_NETFWRULE, ptr::null_mut(), CLSCTX_INPROC_SERVER,
             &IID_INETFWRULE, &mut rule as *mut *mut IUnknown as *mut *mut _) < 0 {
-            (*(*(policy as *const *const INetFwPolicy2Vtbl)).release)(policy);
+            let policy_vtbl = *(policy as *const *const INetFwPolicy2Vtbl);
+            ((*policy_vtbl).release)(policy);
             return Err(io::Error::new(io::ErrorKind::Other, "无法创建规则对象"));
         }
 
         let rule_vtbl = *(rule as *const *const INetFwRuleVtbl);
         
         let name_wide: Vec<u16> = OsStr::new(name).encode_wide().chain(Some(0)).collect();
-        let name_bstr = SysAllocString(name_wide.as_ptr());
+        let name_bstr = sys_alloc_string(name_wide.as_ptr());
         ((*rule_vtbl).put_name)(rule, name_bstr);
-        SysFreeString(name_bstr);
+        sys_free_string(name_bstr);
 
         if is_app && !app_path.is_empty() {
             let path_wide: Vec<u16> = OsStr::new(app_path).encode_wide().chain(Some(0)).collect();
-            let path_bstr = SysAllocString(path_wide.as_ptr());
+            let path_bstr = sys_alloc_string(path_wide.as_ptr());
             ((*rule_vtbl).put_application_name)(rule, path_bstr);
-            SysFreeString(path_bstr);
+            sys_free_string(path_bstr);
         }
 
         ((*rule_vtbl).put_protocol)(rule, protocol);

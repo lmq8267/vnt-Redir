@@ -2,7 +2,7 @@
 use std::io;
 use std::ptr;
 use std::mem;
-use windows_sys::Win32::NetworkManagement::IpHelper::*;
+use windows_sys::Win32::NetworkManagement::IpHelper::{GetAdaptersAddresses, IP_ADAPTER_ADDRESSES_LH, GAA_FLAG_INCLUDE_PREFIX};
 use windows_sys::Win32::Networking::WinSock::AF_UNSPEC;
 use windows_sys::Win32::Devices::DeviceAndDriverInstallation::*;
 use windows_sys::Win32::Foundation::*;
@@ -91,7 +91,7 @@ impl WindowsAdapterManager {
         };
         
         let dev_info = SetupDiGetClassDevsW(&class_guid, ptr::null(), ptr::null_mut(), DIGCF_PRESENT);
-        if dev_info as isize == INVALID_HANDLE_VALUE {
+        if dev_info == INVALID_HANDLE_VALUE {
             return Err(io::Error::new(io::ErrorKind::Other, "无法获取设备列表"));
         }
 
