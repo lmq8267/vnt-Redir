@@ -194,7 +194,6 @@ impl WindowsFirewallManager {
             ((*rules_vtbl).release)(rules);
         }
         ((*vtbl).release)(policy);
-        ((*vtbl).release)(policy);
         Ok(())
     }
 
