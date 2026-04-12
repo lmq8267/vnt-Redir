@@ -536,8 +536,8 @@ impl Drop for VntInner {
     fn drop(&mut self) {
         log::info!("VNT 正在退出，清理资源...");
         
-        // Windows 平台：清理防火墙规则
-        #[cfg(target_os = "windows")]
+        // Windows 平台：清理防火墙规则（仅在 integrated_tun 启用时）
+        #[cfg(all(target_os = "windows", feature = "integrated_tun"))]
         {
             let device_name = self.config.device_name
                 .as_deref()
