@@ -202,7 +202,6 @@ impl WindowsAdapterManager {
                                 let err = io::Error::last_os_error();
                                 log::warn!("设置删除参数失败 (错误: {})", err);
                             }
-                            }
                         }
                     }
                 }
