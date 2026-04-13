@@ -90,6 +90,11 @@ impl WindowsAdapterManager {
                     String::from_utf16_lossy(std::slice::from_raw_parts(adapter.Description, len))
                 } else { String::new() };
 
+                // 调试：显示所有 wintun 网卡
+                if description.to_lowercase().contains("wintun") {
+                    log::info!("检测到 Wintun 网卡: {} ({})", friendly_name, description);
+                }
+
                 // 匹配逻辑：
                 // 1. 完全相同：vnt-tun
                 // 2. 带括号后缀：vnt-tun (Wintun...)
