@@ -217,8 +217,8 @@ jobs:
         run: |
           if [[ $TARGET =~ ^mips.*$ ]]; then
             cargo +nightly-2023-12-20 build --package vn-link-cli --release --verbose --target $TARGET -Z build-std=std,panic_abort --features $FEATURES
-          else
-            cargo build --package vn-link-cli --release --verbose --target $TARGET --features $FEATURES
+          #else
+          #  cargo build --package vn-link-cli --release --verbose --target $TARGET --features $FEATURES
           fi
       - name: Run build vnt-cli
         run: |

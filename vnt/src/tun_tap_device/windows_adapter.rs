@@ -100,6 +100,8 @@ impl WindowsAdapterManager {
             let desc_len = desc_buf.iter().position(|&c| c == 0).unwrap_or(desc_buf.len());
             let desc = String::from_utf16_lossy(&desc_buf[..desc_len]);
 
+            log::info!("枚举到网卡设备: {}", desc);
+
             // 只处理 Wintun
             if !desc.to_lowercase().contains("wintun") {
                 index += 1;
@@ -112,6 +114,7 @@ impl WindowsAdapterManager {
             let conn_name = match get_net_connection_id(dev_info, &dev_info_data) {
                 Some(n) => n,
                 None => {
+                    log::warn!("无法获取 Wintun 设备的连接名称");
                     index += 1;
                     continue;
                 }
