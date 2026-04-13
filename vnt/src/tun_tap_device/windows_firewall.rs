@@ -10,6 +10,14 @@ use windows_sys::Win32::System::Ole::*;
 use windows_sys::core::GUID;
 
 type IUnknown = std::ffi::c_void;
+type SAFEARRAY = std::ffi::c_void;
+
+#[link(name = "oleaut32")]
+extern "system" {
+    fn SafeArrayCreateVector(vt: u16, lLbound: i32, cElements: u32) -> *mut SAFEARRAY;
+    fn SafeArrayPutElement(psa: *mut SAFEARRAY, rgIndices: *const i32, pv: *const std::ffi::c_void) -> i32;
+    fn SafeArrayDestroy(psa: *mut SAFEARRAY) -> i32;
+}
 
 // COM GUIDs
 const CLSID_NETFWPOLICY2: GUID = GUID { 
