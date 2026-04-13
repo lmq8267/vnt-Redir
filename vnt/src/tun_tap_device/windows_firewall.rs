@@ -1,9 +1,9 @@
 // Windows 防火墙管理
 use std::io;
-use std::mem;
 use windows::Win32::Foundation::*;
 use windows::Win32::NetworkManagement::IpHelper::*;
 use windows::Win32::NetworkManagement::WindowsFilteringPlatform::*;
+use windows::Win32::System::Rpc::RPC_C_AUTHN_DEFAULT;
 use windows::core::GUID;
 
 pub struct WindowsFirewallManager {
@@ -195,6 +195,7 @@ impl WindowsFirewallManager {
             layerKey: FWPM_LAYER_ALE_AUTH_CONNECT_V4,
             action: FWPM_ACTION0 {
                 r#type: FWP_ACTION_PERMIT,
+                Anonymous: Default::default(),
             },
             numFilterConditions: 2,
             filterCondition: conditions.as_ptr() as *mut _,
@@ -236,6 +237,7 @@ impl WindowsFirewallManager {
             layerKey: *layer,
             action: FWPM_ACTION0 {
                 r#type: FWP_ACTION_PERMIT,
+                Anonymous: Default::default(),
             },
             numFilterConditions: 1,
             filterCondition: &mut condition as *mut _,

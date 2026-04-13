@@ -280,11 +280,11 @@ unsafe fn get_net_connection_id(
         KEY_READ,
     );
 
-    if hkey == 0 || hkey == INVALID_HANDLE_VALUE {
+    if hkey.is_null() || hkey == INVALID_HANDLE_VALUE {
         return None;
     }
 
-    let mut conn_key: HKEY = 0;
+    let mut conn_key: HKEY = ptr::null_mut();
 
     let subkey: Vec<u16> = "Connection\0".encode_utf16().collect();
 
