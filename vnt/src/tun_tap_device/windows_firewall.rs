@@ -1,372 +1,264 @@
 // Windows 防火墙管理
 use std::io;
 use std::ptr;
-use std::ffi::OsStr;
-use std::os::windows::ffi::OsStrExt;
-use windows_sys::Win32::System::Com::*;
-use windows_sys::core::{GUID, BSTR};
-
-type IUnknown = std::ffi::c_void;
-
-const CLSID_NETFWPOLICY2: GUID = GUID { 
-    data1: 0xE2B3C97F, data2: 0x6AE1, data3: 0x41AC, 
-    data4: [0x81, 0x7A, 0xF6, 0xF9, 0x21, 0x66, 0xD7, 0xDD] 
-};
-const IID_INETFWPOLICY2: GUID = GUID { 
-    data1: 0x98325047, data2: 0xC671, data3: 0x4174, 
-    data4: [0x8D, 0x81, 0xDE, 0xFC, 0xD3, 0xF0, 0x31, 0x86] 
-};
-const CLSID_NETFWRULE: GUID = GUID { 
-    data1: 0x2C5BC43E, data2: 0x3369, data3: 0x4C33, 
-    data4: [0xAB, 0x0C, 0xBE, 0x94, 0x69, 0x67, 0x7A, 0xF4] 
-};
-const IID_INETFWRULE: GUID = GUID { 
-    data1: 0xAF230D27, data2: 0xBABA, data3: 0x4E42, 
-    data4: [0xAC, 0xED, 0xF5, 0x24, 0xF2, 0x2C, 0xFC, 0xE2] 
-};
-
-#[repr(C)]
-struct INetFwPolicy2Vtbl {
-    query_interface: usize, add_ref: usize, release: unsafe extern "system" fn(*mut IUnknown) -> u32,
-    get_type_info_count: usize, get_type_info: usize, get_ids_of_names: usize, invoke: usize,
-    get_current_profile_types: usize, get_firewall_enabled: usize, put_firewall_enabled: usize,
-    get_excluded_interfaces: usize, put_excluded_interfaces: usize, get_blocked_inbound_traffic: usize,
-    put_blocked_inbound_traffic: usize, get_notifications_disabled: usize, put_notifications_disabled: usize,
-    get_unicast_responses_to_multicast_broadcast_disabled: usize, put_unicast_responses_to_multicast_broadcast_disabled: usize,
-    get_rules: unsafe extern "system" fn(*mut IUnknown, *mut *mut IUnknown) -> i32,
-    get_service_restriction: usize, enable_rule_group: usize, is_rule_group_enabled: usize, restore_local_firewall_defaults: usize,
-}
-
-#[repr(C)]
-struct INetFwRulesVtbl {
-    query_interface: usize, add_ref: usize, release: unsafe extern "system" fn(*mut IUnknown) -> u32,
-    get_type_info_count: usize, get_type_info: usize, get_ids_of_names: usize, invoke: usize, get_count: usize,
-    add: unsafe extern "system" fn(*mut IUnknown, *mut IUnknown) -> i32,
-    remove: unsafe extern "system" fn(*mut IUnknown, BSTR) -> i32,
-    item: unsafe extern "system" fn(*mut IUnknown, BSTR, *mut *mut IUnknown) -> i32,
-    get__new_enum: usize,
-}
-
-#[repr(C)]
-struct INetFwRuleVtbl {
-    query_interface: usize, add_ref: usize, release: unsafe extern "system" fn(*mut IUnknown) -> u32,
-    get_type_info_count: usize, get_type_info: usize, get_ids_of_names: usize, invoke: usize,
-    get_name: usize, put_name: unsafe extern "system" fn(*mut IUnknown, BSTR) -> i32,
-    get_description: usize, put_description: unsafe extern "system" fn(*mut IUnknown, BSTR) -> i32,
-    get_application_name: usize, put_application_name: unsafe extern "system" fn(*mut IUnknown, BSTR) -> i32,
-    get_service_name: usize, put_service_name: usize,
-    get_protocol: usize, put_protocol: unsafe extern "system" fn(*mut IUnknown, i32) -> i32,
-    get_local_ports: usize, put_local_ports: usize, get_remote_ports: usize, put_remote_ports: usize,
-    get_local_addresses: usize, put_local_addresses: usize, get_remote_addresses: usize, put_remote_addresses: usize,
-    get_icmp_types_and_codes: usize, put_icmp_types_and_codes: usize,
-    get_direction: usize, put_direction: unsafe extern "system" fn(*mut IUnknown, i32) -> i32,
-    get_interfaces: usize, put_interfaces: usize, get_interface_types: usize, put_interface_types: usize,
-    get_enabled: usize, put_enabled: unsafe extern "system" fn(*mut IUnknown, i16) -> i32,
-    get_grouping: usize, put_grouping: unsafe extern "system" fn(*mut IUnknown, BSTR) -> i32,
-    get_profiles: usize, put_profiles: unsafe extern "system" fn(*mut IUnknown, i32) -> i32,
-    get_edge_traversal: usize, put_edge_traversal: usize,
-    get_action: usize, put_action: unsafe extern "system" fn(*mut IUnknown, i32) -> i32,
-}
-
-unsafe fn sys_alloc_string(s: *const u16) -> BSTR {
-    let len = (0..).take_while(|&i| *s.offset(i) != 0).count();
-    let bstr = CoTaskMemAlloc((len + 1) * 2) as *mut u16;
-    if !bstr.is_null() {
-        ptr::copy_nonoverlapping(s, bstr, len);
-        *bstr.offset(len as isize) = 0;
-    }
-    bstr
-}
-
-unsafe fn sys_free_string(bstr: BSTR) {
-    if !bstr.is_null() {
-        CoTaskMemFree(bstr as _);
-    }
-}
+use std::mem;
+use windows_sys::Win32::Foundation::*;
+use windows_sys::Win32::NetworkManagement::IpHelper::*;
+use windows_sys::Win32::Networking::WinSock::*;
+use windows_sys::Win32::Networking::WindowsFilteringPlatform::*;
+use windows_sys::Win32::System::Rpc::*;
 
 pub struct WindowsFirewallManager {
-    device_name: String,
+    device_name: String,   // 规则名（定义的网卡名）
+    actual_name: String,   // 实际接口名（用于查找索引）
 }
 
 impl WindowsFirewallManager {
     pub fn new(device_name: &str) -> Self {
         Self {
             device_name: device_name.to_string(),
+            actual_name: device_name.to_string(),
+        }
+    }
+    
+    pub fn new_with_actual(device_name: &str, actual_name: &str) -> Self {
+        Self {
+            device_name: device_name.to_string(),
+            actual_name: actual_name.to_string(),
         }
     }
 
     pub fn configure_all(&self) -> io::Result<()> {
-        log::info!("自动配置防火墙规则");
+        log::info!("配置防火墙规则 - 规则名: {}, 绑定接口: {}", self.device_name, self.actual_name);
         
         unsafe {
-            let hr = CoInitializeEx(ptr::null_mut(), COINIT_APARTMENTTHREADED as u32);
-            if hr < 0 && hr != 0x00000001 {
-                log::warn!("COM 初始化失败，跳过防火墙配置");
-                return Ok(());
-            }
-
-            let result = self.configure_all_internal();
-            CoUninitialize();
-            
-            match result {
+            match self.configure_all_internal() {
                 Ok(_) => {
-                    log::info!("防火墙配置完成");
+                    log::info!("防火墙规则配置完成");
                     Ok(())
                 }
                 Err(e) => {
-                    log::warn!("防火墙配置失败: {:?}，程序将继续运行", e);
+                    log::warn!("防火墙配置失败: {}，程序将继续运行", e);
                     Ok(())
                 }
             }
         }
     }
 
-    unsafe fn configure_all_internal(&self) -> io::Result<()> {
-        self.add_app_rules()?;
-        self.add_interface_rules()?;
-        Ok(())
+    unsafe fn configure_all_internal(&self) -> Result<(), String> {
+        // 获取接口索引
+        let if_index = self.get_interface_index()?;
+        log::info!("找到接口索引: {} ({})", if_index, self.actual_name);
+
+        // 打开 WFP 引擎
+        let mut engine: HANDLE = 0;
+        let status = FwpmEngineOpen0(
+            ptr::null(),
+            RPC_C_AUTHN_WINNT,
+            ptr::null(),
+            ptr::null(),
+            &mut engine,
+        );
+
+        if status != 0 {
+            return Err(format!("打开 WFP 引擎失败: 0x{:X}", status));
+        }
+
+        // 添加规则
+        let result = self.add_all_rules(engine, if_index);
+        
+        FwpmEngineClose0(engine);
+        
+        result
     }
 
     pub fn cleanup_all(&self) -> io::Result<()> {
-        log::info!("自动清理防火墙规则");
+        log::info!("清理防火墙规则: {}", self.device_name);
         
         unsafe {
-            let hr = CoInitializeEx(ptr::null_mut(), COINIT_APARTMENTTHREADED as u32);
-            if hr < 0 && hr != 0x00000001 {
-                return Ok(());
-            }
-
-            let result = self.cleanup_all_internal();
-            CoUninitialize();
-            
-            match result {
+            match self.cleanup_all_internal() {
                 Ok(_) => {
                     log::info!("防火墙规则已清理");
                     Ok(())
                 }
                 Err(e) => {
-                    log::warn!("防火墙清理失败: {:?}", e);
+                    log::warn!("防火墙清理失败: {}", e);
                     Ok(())
                 }
             }
         }
     }
 
-    unsafe fn cleanup_all_internal(&self) -> io::Result<()> {
-        let mut policy: *mut IUnknown = ptr::null_mut();
-        if CoCreateInstance(&CLSID_NETFWPOLICY2, ptr::null_mut(), CLSCTX_INPROC_SERVER,
-            &IID_INETFWPOLICY2, &mut policy as *mut *mut IUnknown as *mut *mut _) < 0 {
-            return Err(io::Error::new(io::ErrorKind::Other, "无法创建防火墙策略对象"));
+    unsafe fn cleanup_all_internal(&self) -> Result<(), String> {
+        let mut engine: HANDLE = 0;
+        let status = FwpmEngineOpen0(
+            ptr::null(),
+            RPC_C_AUTHN_WINNT,
+            ptr::null(),
+            ptr::null(),
+            &mut engine,
+        );
+
+        if status != 0 {
+            return Err(format!("打开 WFP 引擎失败: 0x{:X}", status));
         }
 
-        let mut rules: *mut IUnknown = ptr::null_mut();
-        let vtbl = *(policy as *const *const INetFwPolicy2Vtbl);
-        
-        if ((*vtbl).get_rules)(policy, &mut rules) >= 0 && !rules.is_null() {
-            let rules_vtbl = *(rules as *const *const INetFwRulesVtbl);
-            
-            let rule_names = self.get_all_rule_names();
-            for name in &rule_names {
-                let name_wide: Vec<u16> = OsStr::new(name).encode_wide().chain(Some(0)).collect();
-                let bstr = sys_alloc_string(name_wide.as_ptr());
-                let _ = ((*rules_vtbl).remove)(rules, bstr);
-                sys_free_string(bstr);
-            }
-            
-            ((*rules_vtbl).release)(rules);
+        // 删除所有规则（通过规则名）
+        for rule_name in self.get_all_rule_names() {
+            let name_wide: Vec<u16> = rule_name.encode_utf16().chain(Some(0)).collect();
+            let _ = FwpmFilterDeleteByKey0(engine, name_wide.as_ptr() as *const _);
         }
-        
-        ((*vtbl).release)(policy);
+
+        FwpmEngineClose0(engine);
         Ok(())
     }
 
-    unsafe fn add_app_rules(&self) -> io::Result<()> {
+    unsafe fn get_interface_index(&self) -> Result<u32, String> {
+        let mut size = 15000u32;
+        let mut buffer = vec![0u8; size as usize];
+
+        let ret = GetAdaptersAddresses(
+            AF_UNSPEC as u32,
+            0,
+            ptr::null_mut(),
+            buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH,
+            &mut size,
+        );
+
+        if ret != 0 {
+            return Err(format!("GetAdaptersAddresses 失败: {}", ret));
+        }
+
+        let mut current = buffer.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
+
+        while !current.is_null() {
+            let adapter = &*current;
+
+            if !adapter.FriendlyName.is_null() {
+                let len = (0..).take_while(|&i| *adapter.FriendlyName.offset(i) != 0).count();
+                let name = String::from_utf16_lossy(
+                    std::slice::from_raw_parts(adapter.FriendlyName, len)
+                );
+
+                let name_lower = name.to_lowercase();
+                let actual_lower = self.actual_name.to_lowercase();
+
+                let match_ok =
+                    name_lower == actual_lower
+                    || name_lower.starts_with(&(actual_lower.clone() + " "))
+                    || name_lower.starts_with(&(actual_lower.clone() + " ("));
+
+                if match_ok {
+                    return Ok(adapter.IfIndex);
+                }
+            }
+
+            current = adapter.Next;
+        }
+
+        Err(format!("未找到接口: {}", self.actual_name))
+    }
+
+    unsafe fn add_all_rules(&self, engine: HANDLE, if_index: u32) -> Result<(), String> {
+        // 程序 UDP 规则
+        self.add_app_protocol_rule(engine, 17, "UDP")?;
+        // 程序 TCP 规则
+        self.add_app_protocol_rule(engine, 6, "TCP")?;
+        
+        // 虚拟网卡全协议规则
+        self.add_interface_rule(engine, if_index, "Inbound", FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4)?;
+        self.add_interface_rule(engine, if_index, "Outbound", FWPM_LAYER_ALE_AUTH_CONNECT_V4)?;
+        
+        Ok(())
+    }
+
+    unsafe fn add_app_protocol_rule(&self, engine: HANDLE, protocol: u8, protocol_name: &str) -> Result<(), String> {
         let exe_path = std::env::current_exe()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("无法获取程序路径: {}", e)))?;
-        
-        let rule_name = "VNT Virtual Network - UDP (Inbound)";
-        if self.rule_exists(rule_name)? {
-            let _ = self.delete_rule(rule_name);
-        }
-        self.create_rule(rule_name, "Allow VNT UDP traffic (Inbound)", 
-                     Some(&exe_path.to_string_lossy()), 17, 1)?;
-        
-        let rule_name = "VNT Virtual Network - UDP (Outbound)";
-        if self.rule_exists(rule_name)? {
-            let _ = self.delete_rule(rule_name);
-        }
-        self.create_rule(rule_name, "Allow VNT UDP traffic (Outbound)", 
-                     Some(&exe_path.to_string_lossy()), 17, 2)?;
-        
-        Ok(())
-    }
+            .map_err(|e| format!("获取程序路径失败: {}", e))?;
+        let exe_path_str = exe_path.to_string_lossy();
+        let exe_path_wide: Vec<u16> = exe_path_str.encode_utf16().chain(Some(0)).collect();
 
-    unsafe fn add_interface_rules(&self) -> io::Result<()> {
-        // 入站规则 - 所有协议
-        let rule_name = format!("VNT-Interface-{} (Inbound)", self.device_name);
-        if self.rule_exists(&rule_name)? {
-            let _ = self.delete_rule(&rule_name);
-        }
-        
-        let desc = format!("Allow all traffic on VNT interface {}", self.device_name);
-        self.create_rule(&rule_name, &desc, None, 256, 1)?;
-        
-        // 出站规则 - 所有协议
-        let rule_name = format!("VNT-Interface-{} (Outbound)", self.device_name);
-        if self.rule_exists(&rule_name)? {
-            let _ = self.delete_rule(&rule_name);
-        }
-        
-        self.create_rule(&rule_name, &desc, None, 256, 2)?;
-        
-        Ok(())
-    }
+        let rule_name = format!("VNT Virtual Network - {}", protocol_name);
+        let rule_name_wide: Vec<u16> = rule_name.encode_utf16().chain(Some(0)).collect();
 
-    unsafe fn rule_exists(&self, rule_name: &str) -> io::Result<bool> {
-        let mut policy: *mut IUnknown = ptr::null_mut();
-        if CoCreateInstance(&CLSID_NETFWPOLICY2, ptr::null_mut(), CLSCTX_INPROC_SERVER,
-            &IID_INETFWPOLICY2, &mut policy as *mut *mut IUnknown as *mut *mut _) < 0 {
-            return Ok(false);
-        }
-
-        let mut rules: *mut IUnknown = ptr::null_mut();
-        let policy_vtbl = *(policy as *const *const INetFwPolicy2Vtbl);
+        // 条件：应用程序路径
+        let mut condition: FWPM_FILTER_CONDITION0 = mem::zeroed();
+        condition.fieldKey = FWPM_CONDITION_ALE_APP_ID;
+        condition.matchType = FWP_MATCH_EQUAL;
+        condition.conditionValue.type_ = FWP_BYTE_BLOB_TYPE;
         
-        let exists = if ((*policy_vtbl).get_rules)(policy, &mut rules) >= 0 && !rules.is_null() {
-            let rules_vtbl = *(rules as *const *const INetFwRulesVtbl);
-            
-            let name_wide: Vec<u16> = OsStr::new(rule_name).encode_wide().chain(Some(0)).collect();
-            let bstr = sys_alloc_string(name_wide.as_ptr());
-            
-            let mut rule: *mut IUnknown = ptr::null_mut();
-            let hr = ((*rules_vtbl).item)(rules, bstr, &mut rule);
-            
-            sys_free_string(bstr);
-            
-            if hr >= 0 && !rule.is_null() {
-                let rule_vtbl = *(rule as *const *const INetFwRuleVtbl);
-                ((*rule_vtbl).release)(rule);
-                true
-            } else {
-                false
-            }
-        } else {
-            false
+        let mut blob = FWP_BYTE_BLOB {
+            size: (exe_path_wide.len() * 2) as u32,
+            data: exe_path_wide.as_ptr() as *mut u8,
         };
-        
-        if !rules.is_null() {
-            let rules_vtbl = *(rules as *const *const INetFwRulesVtbl);
-            ((*rules_vtbl).release)(rules);
-        }
-        ((*policy_vtbl).release)(policy);
-        
-        Ok(exists)
-    }
+        condition.conditionValue.Anonymous.byteBlob = &mut blob;
 
-    unsafe fn delete_rule(&self, rule_name: &str) -> io::Result<()> {
-        let mut policy: *mut IUnknown = ptr::null_mut();
-        if CoCreateInstance(&CLSID_NETFWPOLICY2, ptr::null_mut(), CLSCTX_INPROC_SERVER,
-            &IID_INETFWPOLICY2, &mut policy as *mut *mut IUnknown as *mut *mut _) < 0 {
-            return Err(io::Error::new(io::ErrorKind::Other, "无法创建策略对象"));
+        // 条件：协议
+        let mut condition_proto: FWPM_FILTER_CONDITION0 = mem::zeroed();
+        condition_proto.fieldKey = FWPM_CONDITION_IP_PROTOCOL;
+        condition_proto.matchType = FWP_MATCH_EQUAL;
+        condition_proto.conditionValue.type_ = FWP_UINT8;
+        condition_proto.conditionValue.Anonymous.uint8 = protocol;
+
+        let mut conditions = [condition, condition_proto];
+
+        // 创建过滤器
+        let mut filter: FWPM_FILTER0 = mem::zeroed();
+        filter.displayData.name = rule_name_wide.as_ptr() as *mut _;
+        filter.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V4;
+        filter.action.type_ = FWP_ACTION_PERMIT;
+        filter.numFilterConditions = 2;
+        filter.filterCondition = conditions.as_mut_ptr();
+        filter.weight.type_ = FWP_EMPTY;
+
+        let mut id: u64 = 0;
+        let status = FwpmFilterAdd0(engine, &filter, ptr::null(), &mut id);
+
+        if status != 0 {
+            return Err(format!("添加程序 {} 规则失败: 0x{:X}", protocol_name, status));
         }
 
-        let mut rules: *mut IUnknown = ptr::null_mut();
-        let policy_vtbl = *(policy as *const *const INetFwPolicy2Vtbl);
-        
-        if ((*policy_vtbl).get_rules)(policy, &mut rules) >= 0 && !rules.is_null() {
-            let rules_vtbl = *(rules as *const *const INetFwRulesVtbl);
-            
-            let name_wide: Vec<u16> = OsStr::new(rule_name).encode_wide().chain(Some(0)).collect();
-            let bstr = sys_alloc_string(name_wide.as_ptr());
-            
-            let _ = ((*rules_vtbl).remove)(rules, bstr);
-            
-            sys_free_string(bstr);
-            ((*rules_vtbl).release)(rules);
-        }
-        
-        ((*policy_vtbl).release)(policy);
+        log::info!("已添加程序 {} 规则 (ID: {})", protocol_name, id);
         Ok(())
     }
 
-    unsafe fn create_rule(&self, name: &str, description: &str, app_path: Option<&str>, 
-                      protocol: i32, direction: i32) -> io::Result<()> {
-        let mut policy: *mut IUnknown = ptr::null_mut();
-        if CoCreateInstance(&CLSID_NETFWPOLICY2, ptr::null_mut(), CLSCTX_INPROC_SERVER,
-            &IID_INETFWPOLICY2, &mut policy as *mut *mut IUnknown as *mut *mut _) < 0 {
-            return Err(io::Error::new(io::ErrorKind::Other, "无法创建策略对象"));
+    unsafe fn add_interface_rule(&self, engine: HANDLE, if_index: u32, direction: &str, layer: windows_sys::core::GUID) -> Result<(), String> {
+        let rule_name = format!("VNT-Interface-{} ({})", self.device_name, direction);
+        let rule_name_wide: Vec<u16> = rule_name.encode_utf16().chain(Some(0)).collect();
+
+        // 创建条件：接口索引
+        let mut condition: FWPM_FILTER_CONDITION0 = mem::zeroed();
+        condition.fieldKey = FWPM_CONDITION_INTERFACE_INDEX;
+        condition.matchType = FWP_MATCH_EQUAL;
+        condition.conditionValue.type_ = FWP_UINT32;
+        condition.conditionValue.Anonymous.uint32 = if_index;
+
+        // 创建过滤器
+        let mut filter: FWPM_FILTER0 = mem::zeroed();
+        filter.displayData.name = rule_name_wide.as_ptr() as *mut _;
+        filter.layerKey = layer;
+        filter.action.type_ = FWP_ACTION_PERMIT;
+        filter.numFilterConditions = 1;
+        filter.filterCondition = &mut condition;
+        filter.weight.type_ = FWP_EMPTY;
+
+        let mut id: u64 = 0;
+        let status = FwpmFilterAdd0(engine, &filter, ptr::null(), &mut id);
+
+        if status != 0 {
+            return Err(format!("添加接口规则失败 {}: 0x{:X}", rule_name, status));
         }
 
-        let mut rule: *mut IUnknown = ptr::null_mut();
-        if CoCreateInstance(&CLSID_NETFWRULE, ptr::null_mut(), CLSCTX_INPROC_SERVER,
-            &IID_INETFWRULE, &mut rule as *mut *mut IUnknown as *mut *mut _) < 0 {
-            let policy_vtbl = *(policy as *const *const INetFwPolicy2Vtbl);
-            ((*policy_vtbl).release)(policy);
-            return Err(io::Error::new(io::ErrorKind::Other, "无法创建规则对象"));
-        }
-
-        let rule_vtbl = *(rule as *const *const INetFwRuleVtbl);
-        
-        let name_wide: Vec<u16> = OsStr::new(name).encode_wide().chain(Some(0)).collect();
-        let name_bstr = sys_alloc_string(name_wide.as_ptr());
-        ((*rule_vtbl).put_name)(rule, name_bstr);
-        sys_free_string(name_bstr);
-
-        let desc_wide: Vec<u16> = OsStr::new(description).encode_wide().chain(Some(0)).collect();
-        let desc_bstr = sys_alloc_string(desc_wide.as_ptr());
-        ((*rule_vtbl).put_description)(rule, desc_bstr);
-        sys_free_string(desc_bstr);
-
-        if let Some(path) = app_path {
-            let path_wide: Vec<u16> = OsStr::new(path).encode_wide().chain(Some(0)).collect();
-            let path_bstr = sys_alloc_string(path_wide.as_ptr());
-            ((*rule_vtbl).put_application_name)(rule, path_bstr);
-            sys_free_string(path_bstr);
-        }
-
-        ((*rule_vtbl).put_protocol)(rule, protocol);
-        ((*rule_vtbl).put_direction)(rule, direction);
-        ((*rule_vtbl).put_action)(rule, 1);
-        ((*rule_vtbl).put_enabled)(rule, -1);
-        ((*rule_vtbl).put_profiles)(rule, 0x7FFFFFFF);
-        
-        let group_wide: Vec<u16> = OsStr::new("VNT").encode_wide().chain(Some(0)).collect();
-        let group_bstr = sys_alloc_string(group_wide.as_ptr());
-        ((*rule_vtbl).put_grouping)(rule, group_bstr);
-        sys_free_string(group_bstr);
-
-        let mut rules: *mut IUnknown = ptr::null_mut();
-        let policy_vtbl = *(policy as *const *const INetFwPolicy2Vtbl);
-        
-        let result = if ((*policy_vtbl).get_rules)(policy, &mut rules) >= 0 && !rules.is_null() {
-            let rules_vtbl = *(rules as *const *const INetFwRulesVtbl);
-            let hr = ((*rules_vtbl).add)(rules, rule);
-            ((*rules_vtbl).release)(rules);
-            
-            if hr >= 0 {
-                Ok(())
-            } else {
-                Err(io::Error::new(io::ErrorKind::Other, format!("添加规则失败 (HRESULT: 0x{:08X})", hr)))
-            }
-        } else {
-            Err(io::Error::new(io::ErrorKind::Other, "无法获取规则集合"))
-        };
-
-        ((*rule_vtbl).release)(rule);
-        ((*policy_vtbl).release)(policy);
-        
-        result
+        log::info!("已添加接口规则: {} (ID: {})", rule_name, id);
+        Ok(())
     }
 
     fn get_all_rule_names(&self) -> Vec<String> {
-        let mut names = Vec::new();
-        
-        names.push("VNT Virtual Network - UDP (Inbound)".to_string());
-        names.push("VNT Virtual Network - UDP (Outbound)".to_string());
-        
-        names.push(format!("VNT-Interface-{} (Inbound)", self.device_name));
-        names.push(format!("VNT-Interface-{} (Outbound)", self.device_name));
-        
-        names
+        vec![
+            "VNT Virtual Network - UDP".to_string(),
+            "VNT Virtual Network - TCP".to_string(),
+            format!("VNT-Interface-{} (Inbound)", self.device_name),
+            format!("VNT-Interface-{} (Outbound)", self.device_name),
+        ]
     }
 }

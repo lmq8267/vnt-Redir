@@ -543,7 +543,11 @@ impl Drop for VntInner {
                 .as_deref()
                 .unwrap_or("vnt-tun");
             
-            let firewall_manager = crate::tun_tap_device::windows_firewall::WindowsFirewallManager::new(device_name);
+            // 获取实际网卡名
+            let actual_name = crate::tun_tap_device::windows_adapter::get_actual_adapter_name(device_name)
+                .unwrap_or_else(|_| device_name.to_string());
+            
+            let firewall_manager = crate::tun_tap_device::windows_firewall::WindowsFirewallManager::new_with_actual(device_name, &actual_name);
             let _ = firewall_manager.cleanup_all();
             
             let adapter_manager = crate::tun_tap_device::windows_adapter::WindowsAdapterManager::new(device_name);

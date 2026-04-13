@@ -55,7 +55,13 @@ pub fn create_device<Call: VntCallback>(
             .as_deref()
             .unwrap_or(DEFAULT_TUN_NAME);
         
-        let firewall_manager = crate::tun_tap_device::windows_firewall::WindowsFirewallManager::new(device_name);
+        // 获取实际网卡名（可能带序号）
+        let actual_name = crate::tun_tap_device::windows_adapter::get_actual_adapter_name(device_name)
+            .unwrap_or_else(|_| device_name.to_string());
+        
+        log::info!("配置防火墙 - 规则名: {}, 绑定接口: {}", device_name, actual_name);
+        
+        let firewall_manager = crate::tun_tap_device::windows_firewall::WindowsFirewallManager::new_with_actual(device_name, &actual_name);
         if let Err(e) = firewall_manager.configure_all() {
             log::warn!("配置防火墙失败: {:?}", e);
             call.error(ErrorInfo::new_msg(

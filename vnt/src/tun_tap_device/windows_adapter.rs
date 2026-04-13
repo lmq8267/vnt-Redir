@@ -178,6 +178,92 @@ impl WindowsAdapterManager {
     }
 }
 
+/// 获取实际网卡名（创建后可能带序号）
+pub fn get_actual_adapter_name(device_name: &str) -> io::Result<String> {
+    unsafe {
+        let class_guid = GUID {
+            data1: 0x4d36e972,
+            data2: 0xe325,
+            data3: 0x11ce,
+            data4: [0xbf, 0xc1, 0x08, 0x00, 0x2b, 0xe1, 0x03, 0x18],
+        };
+
+        let dev_info = SetupDiGetClassDevsW(
+            &class_guid,
+            ptr::null(),
+            ptr::null_mut(),
+            DIGCF_PRESENT | DIGCF_PROFILE,
+        );
+
+        if dev_info as isize == -1 {
+            return Err(io::Error::last_os_error());
+        }
+
+        let mut index = 0;
+        let mut result = None;
+
+        loop {
+            let mut dev_info_data: SP_DEVINFO_DATA = mem::zeroed();
+            dev_info_data.cbSize = mem::size_of::<SP_DEVINFO_DATA>() as u32;
+
+            if SetupDiEnumDeviceInfo(dev_info, index, &mut dev_info_data) == 0 {
+                break;
+            }
+
+            let mut desc_buf = [0u16; 256];
+            let mut reg_type = 0u32;
+
+            if SetupDiGetDeviceRegistryPropertyW(
+                dev_info,
+                &dev_info_data,
+                SPDRP_DEVICEDESC,
+                &mut reg_type,
+                desc_buf.as_mut_ptr() as *mut u8,
+                (desc_buf.len() * 2) as u32,
+                ptr::null_mut(),
+            ) == 0
+            {
+                index += 1;
+                continue;
+            }
+
+            let desc_len = desc_buf.iter().position(|&c| c == 0).unwrap_or(desc_buf.len());
+            let desc = String::from_utf16_lossy(&desc_buf[..desc_len]);
+
+            if !desc.to_lowercase().contains("wintun") {
+                index += 1;
+                continue;
+            }
+
+            let conn_name = match get_net_connection_id(dev_info, &dev_info_data) {
+                Some(n) => n,
+                None => {
+                    index += 1;
+                    continue;
+                }
+            };
+
+            let name_lower = conn_name.to_lowercase();
+            let device_lower = device_name.to_lowercase();
+
+            let match_ok = name_lower == device_lower
+                || name_lower.starts_with(&(device_lower.clone() + " "))
+                || name_lower.starts_with(&(device_lower.clone() + " ("));
+
+            if match_ok {
+                result = Some(conn_name);
+                break;
+            }
+
+            index += 1;
+        }
+
+        SetupDiDestroyDeviceInfoList(dev_info);
+
+        result.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "未找到匹配的网卡"))
+    }
+}
+
 // =========================
 // 获取 NetConnectionID
 // =========================
