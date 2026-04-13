@@ -492,9 +492,33 @@ impl VntInner {
             .map(|v| v.get_all_history())
     }
     pub fn stop(&self) {
+        log::info!("VNT 正在停止");
+        
+        // Windows 平台：清理防火墙规则和虚拟网卡
+        #[cfg(all(target_os = "windows", feature = "integrated_tun"))]
+        {
+            let device_name = self.config.device_name
+                .as_deref()
+                .unwrap_or("vnt-tun");
+            
+            // 清理防火墙规则
+            let firewall_manager = crate::tun_tap_device::windows_firewall::WindowsFirewallManager::new(device_name);
+            if let Err(e) = firewall_manager.cleanup_all() {
+                log::warn!("清理防火墙规则失败: {:?}", e);
+            }
+            
+            // 删除虚拟网卡
+            let adapter_manager = crate::tun_tap_device::windows_adapter::WindowsAdapterManager::new(device_name);
+            if let Err(e) = adapter_manager.remove_adapter() {
+                log::warn!("删除虚拟网卡失败: {:?}", e);
+            }
+        }
+        
         //退出协助回收资源
         let _ = self.context.lock().take();
-        self.stop_manager.stop()
+        self.stop_manager.stop();
+        
+        log::info!("VNT 已停止");
     }
     pub fn is_stopped(&self) -> bool {
         self.stop_manager.is_stopped()
@@ -534,6 +558,25 @@ impl VntInner {
 
 impl Drop for VntInner {
     fn drop(&mut self) {
+        log::info!("VNT 正在停止");
+        
+        // Windows 平台：清理防火墙规则和虚拟网卡
+        #[cfg(all(target_os = "windows", feature = "integrated_tun"))]
+        {
+            let device_name = self.config.device_name
+                .as_deref()
+                .unwrap_or("vnt-tun");
+            
+            // 清理防火墙规则（只需要 device_name）
+            let firewall_manager = crate::tun_tap_device::windows_firewall::WindowsFirewallManager::new(device_name);
+            let _ = firewall_manager.cleanup_all();
+            
+            // 删除虚拟网卡
+            let adapter_manager = crate::tun_tap_device::windows_adapter::WindowsAdapterManager::new(device_name);
+            let _ = adapter_manager.remove_adapter();
+        }
+        
         self.stop();
+        log::info!("VNT 已停止");
     }
 }
