@@ -1,4 +1,4 @@
-// Windows 网卡管理 - 改进版
+// Windows 网卡管理
 use std::io;
 use std::ptr;
 use std::mem;
@@ -90,9 +90,19 @@ impl WindowsAdapterManager {
                     String::from_utf16_lossy(std::slice::from_raw_parts(adapter.Description, len))
                 } else { String::new() };
 
-                if description.to_lowercase().contains("wintun") && 
-                   friendly_name.to_lowercase().contains(&self.device_name.to_lowercase()) {
-                    log::info!("发现已存在的网卡: {}", friendly_name);
+                // 匹配逻辑：
+                // 1. 完全相同：vnt-tun
+                // 2. 带括号后缀：vnt-tun (Wintun...)
+                // 3. 带空格序号：vnt-tun 4, vnt-tun 5
+                // 不匹配： vnt-tun4 或 vnt-tun1
+                let name_lower = friendly_name.to_lowercase();
+                let device_lower = self.device_name.to_lowercase();
+                let name_matches = name_lower == device_lower || 
+                                  name_lower.starts_with(&format!("{} (", device_lower)) ||
+                                  name_lower.starts_with(&format!("{} ", device_lower));
+                
+                if description.to_lowercase().contains("wintun") && name_matches {
+                    log::info!("发现已存在的虚拟网卡: {}", friendly_name);
                     found = true;
                     break;
                 }
@@ -122,7 +132,7 @@ impl WindowsAdapterManager {
         );
         
         if dev_info as isize == -1 {
-            return Err(io::Error::new(io::ErrorKind::Other, "无法获取设备列表"));
+            return Err(io::Error::new(io::ErrorKind::Other, "无法获取虚拟网卡设备列表"));
         }
 
         let mut index = 0u32;
@@ -148,7 +158,17 @@ impl WindowsAdapterManager {
                 let len = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
                 let name = String::from_utf16_lossy(&buffer[..len]);
                 
-                if name.to_lowercase().contains(&self.device_name.to_lowercase()) {
+                // 匹配逻辑：
+                // 1. 完全相同：vnt-tun
+                // 2. 带括号后缀：vnt-tun (Wintun...)
+                // 3. 带空格序号：vnt-tun 4, vnt-tun 5
+                let name_lower = name.to_lowercase();
+                let device_lower = self.device_name.to_lowercase();
+                let name_matches = name_lower == device_lower || 
+                                  name_lower.starts_with(&format!("{} (", device_lower)) ||
+                                  name_lower.starts_with(&format!("{} ", device_lower));
+                
+                if name_matches {
                     // 获取 DeviceDesc 确认是 Wintun
                     if SetupDiGetDeviceRegistryPropertyW(
                         dev_info, &dev_info_data, SPDRP_DEVICEDESC,
@@ -159,6 +179,8 @@ impl WindowsAdapterManager {
                         let desc = String::from_utf16_lossy(&buffer[..len]);
                         
                         if desc.to_lowercase().contains("wintun") {
+                            log::info!("正在删除虚拟网卡: {} ({})", name, desc);
+                            
                             let mut params: SP_REMOVEDEVICE_PARAMS = mem::zeroed();
                             params.ClassInstallHeader.cbSize = mem::size_of::<SP_CLASSINSTALL_HEADER>() as u32;
                             params.ClassInstallHeader.InstallFunction = DIF_REMOVE;
@@ -170,10 +192,16 @@ impl WindowsAdapterManager {
                                 mem::size_of::<SP_REMOVEDEVICE_PARAMS>() as u32
                             ) != 0 {
                                 if SetupDiCallClassInstaller(DIF_REMOVE, dev_info, &mut dev_info_data) != 0 {
+                                    log::info!("虚拟网卡删除成功: {}", name);
                                     removed = true;
                                 } else {
-                                    log::warn!("设备删除失败: {}", name);
+                                    let err = io::Error::last_os_error();
+                                    log::warn!("虚拟网卡删除失败: {} (错误: {})", name, err);
                                 }
+                            } else {
+                                let err = io::Error::last_os_error();
+                                log::warn!("设置删除参数失败 (错误: {})", err);
+                            }
                             }
                         }
                     }
@@ -187,7 +215,7 @@ impl WindowsAdapterManager {
         if removed {
             Ok(())
         } else {
-            Err(io::Error::new(io::ErrorKind::NotFound, "未找到匹配的网卡"))
+            Err(io::Error::new(io::ErrorKind::NotFound, "未找到匹配的虚拟网卡"))
         }
     }
 }

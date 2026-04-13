@@ -1,4 +1,4 @@
-// Windows 防火墙管理 - 改进版
+// Windows 防火墙管理
 use std::io;
 use std::ptr;
 use std::ffi::OsStr;
@@ -96,7 +96,7 @@ impl WindowsFirewallManager {
     }
 
     pub fn configure_all(&self) -> io::Result<()> {
-        log::info!("配置防火墙规则");
+        log::info!("自动配置防火墙规则");
         
         unsafe {
             let hr = CoInitializeEx(ptr::null_mut(), COINIT_APARTMENTTHREADED as u32);
@@ -128,7 +128,7 @@ impl WindowsFirewallManager {
     }
 
     pub fn cleanup_all(&self) -> io::Result<()> {
-        log::info!("清理防火墙规则");
+        log::info!("自动清理防火墙规则");
         
         unsafe {
             let hr = CoInitializeEx(ptr::null_mut(), COINIT_APARTMENTTHREADED as u32);
