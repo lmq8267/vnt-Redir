@@ -52,7 +52,7 @@ impl WindowsFirewallManager {
         log::info!("找到接口索引: {} ({})", if_index, self.actual_name);
 
         // 打开 WFP 引擎
-        let mut engine: HANDLE = 0;
+        let mut engine: HANDLE = ptr::null_mut();
         let status = FwpmEngineOpen0(
             ptr::null(),
             RPC_C_AUTHN_WINNT,
@@ -91,7 +91,7 @@ impl WindowsFirewallManager {
     }
 
     unsafe fn cleanup_all_internal(&self) -> Result<(), String> {
-        let mut engine: HANDLE = 0;
+        let mut engine: HANDLE = ptr::null_mut();
         let status = FwpmEngineOpen0(
             ptr::null(),
             RPC_C_AUTHN_WINNT,
@@ -145,7 +145,7 @@ impl WindowsFirewallManager {
                     || name_lower.starts_with(&(actual_lower.clone() + " ("));
 
                 if match_ok {
-                    return Ok(adapter.IfIndex);
+                    return Ok(unsafe { adapter.Anonymous1.Anonymous.IfIndex });
                 }
             }
 
