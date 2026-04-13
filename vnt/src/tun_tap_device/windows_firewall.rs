@@ -33,6 +33,9 @@ impl WindowsFirewallManager {
         log::info!("配置防火墙规则 - 规则名: {}, 绑定接口: {}", self.device_name, self.actual_name);
         
         unsafe {
+            // 先清理旧规则
+            let _ = self.cleanup_all_internal();
+            
             match self.configure_all_internal() {
                 Ok(_) => {
                     log::info!("虚拟网卡的出入站防火墙规则配置完成");
@@ -208,7 +211,7 @@ impl WindowsFirewallManager {
 
         let mut conditions = [condition_app, condition_proto];
 
-        // 创建过滤器
+        // 创建过滤器（持久化）
         let mut filter: FWPM_FILTER0 = mem::zeroed();
         filter.displayData.name = rule_name_wide.as_ptr() as *mut _;
         filter.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V4;
@@ -216,6 +219,7 @@ impl WindowsFirewallManager {
         filter.numFilterConditions = 2;
         filter.filterCondition = conditions.as_mut_ptr();
         filter.weight.r#type = FWP_EMPTY;
+        filter.flags = 0x00000001; // FWPM_FILTER_FLAG_PERSISTENT
 
         let mut id = 0u64;
         let status = FwpmFilterAdd0(engine, &filter, ptr::null_mut(), &mut id);
@@ -244,7 +248,7 @@ impl WindowsFirewallManager {
             },
         };
 
-        // 创建过滤器
+        // 创建过滤器（持久化）
         let mut filter: FWPM_FILTER0 = mem::zeroed();
         filter.displayData.name = rule_name_wide.as_ptr() as *mut _;
         filter.layerKey = layer;
@@ -252,6 +256,7 @@ impl WindowsFirewallManager {
         filter.numFilterConditions = 1;
         filter.filterCondition = &mut condition as *mut _;
         filter.weight.r#type = FWP_EMPTY;
+        filter.flags = 0x00000001; // FWPM_FILTER_FLAG_PERSISTENT
 
         let mut id = 0u64;
         let status = FwpmFilterAdd0(engine, &filter, ptr::null_mut(), &mut id);

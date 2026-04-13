@@ -263,7 +263,6 @@ jobs:
           tar -czf vnt-$TARGET-$TAG.tar.gz *
           mkdir upload_file
           mv vnt-$TARGET-$TAG.tar.gz ./upload_file/
-          mv ../Cargo.lock ./upload_file/Cargo.lock
       - name: Archive artifact
         uses: actions/upload-artifact@v4
         with:

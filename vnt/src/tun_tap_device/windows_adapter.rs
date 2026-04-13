@@ -134,6 +134,8 @@ impl WindowsAdapterManager {
                 || name_lower.starts_with(&(device_lower.clone() + " "))
                 || name_lower.starts_with(&(device_lower.clone() + " ("));
 
+            log::info!("匹配检查: '{}' vs '{}' => {}", name_lower, device_lower, match_ok);
+
             if !match_ok {
                 index += 1;
                 continue;
