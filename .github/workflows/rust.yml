@@ -3,9 +3,13 @@ name: Rust
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - '*'
-
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 env:
   CARGO_TERM_COLOR: always
 permissions:
@@ -252,12 +256,12 @@ jobs:
             TAG=$GITHUB_SHA
           fi
           mv ./target/$TARGET/release/$EXEC_VNT_CLI ./artifacts/$EXEC_VNT_CLI
-          mv ./target/$TARGET/release/$EXEC_VN_LINK_CLI ./artifacts/$EXEC_VN_LINK_CLI
+          #mv ./target/$TARGET/release/$EXEC_VN_LINK_CLI ./artifacts/$EXEC_VN_LINK_CLI
           mv ./README ./artifacts/README.txt
           if [[ "$OS" == ubuntu* ]]; then
             # 是 Linux 系统（Ubuntu）就使用UPX压缩
             upx --lzma --best ./artifacts/$EXEC_VNT_CLI
-            upx --lzma --best ./artifacts/$EXEC_VN_LINK_CLI
+            #upx --lzma --best ./artifacts/$EXEC_VN_LINK_CLI
           fi
           cd ./artifacts
           tar -czf vnt-$TARGET-$TAG.tar.gz *
