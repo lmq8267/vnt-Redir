@@ -392,7 +392,8 @@ impl WindowsFirewallManager {
         let interface_array = SafeArrayCreateVector(8, 0, 1); // VT_BSTR = 8
         if !interface_array.is_null() {
             let index = 0i32;
-            SafeArrayPutElement(interface_array, &index as *const _, interface_bstr as *const _ as *const _);
+            let bstr_copy = interface_bstr;
+            SafeArrayPutElement(interface_array, &index as *const _, &bstr_copy as *const _ as *const _);
             
             let mut variant: VARIANT = mem::zeroed();
             variant.vt = 0x2008; // VT_ARRAY | VT_BSTR
