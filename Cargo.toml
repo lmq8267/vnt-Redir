@@ -1,6 +1,9 @@
 [workspace]
 members = ["vnt", "common", "vnt-cli", "vn-link", "vn-link-cli"]
 
+[workspace.dependencies]
+windows-sys = "0.61"
+
 [profile.release]
 opt-level = 'z'
 debug = 0

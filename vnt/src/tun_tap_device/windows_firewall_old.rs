@@ -1,13 +1,10 @@
 // Windows 防火墙管理
 use std::io;
-use std::ptr;
-use std::mem;
-use windows_sys::Win32::Foundation::*;
-use windows_sys::Win32::NetworkManagement::IpHelper::*;
-use windows_sys::Win32::NetworkManagement::WindowsFilteringPlatform::*;
-use windows_sys::Win32::Networking::WinSock::*;
-use windows_sys::Win32::System::Rpc::*;
-use windows_sys::core::GUID;
+use windows::Win32::Foundation::*;
+use windows::Win32::NetworkManagement::IpHelper::*;
+use windows::Win32::NetworkManagement::WindowsFilteringPlatform::*;
+use windows::Win32::System::Rpc::RPC_C_AUTHN_DEFAULT;
+use windows::core::GUID;
 
 pub struct WindowsFirewallManager {
     device_name: String,   // 规则名（定义的网卡名）
@@ -46,29 +43,19 @@ impl WindowsFirewallManager {
         }
     }
 
-    unsafe fn configure_all_internal(&self) -> Result<(), String> {
+    unsafe fn configure_all_internal(&self) -> windows::core::Result<()> {
         // 获取接口索引
         let if_index = self.get_interface_index()?;
         log::info!("找到接口索引: {} ({})", if_index, self.actual_name);
 
         // 打开 WFP 引擎
-        let mut engine: HANDLE = 0;
-        let status = FwpmEngineOpen0(
-            ptr::null(),
-            RPC_C_AUTHN_WINNT,
-            ptr::null_mut(),
-            ptr::null(),
-            &mut engine,
-        );
-
-        if status != 0 {
-            return Err(format!("打开 WFP 引擎失败: 0x{:X}", status));
-        }
+        let mut engine = HANDLE::default();
+        FwpmEngineOpen0(None, RPC_C_AUTHN_DEFAULT, None, None, &mut engine)?;
 
         // 添加规则
         let result = self.add_all_rules(engine, if_index);
         
-        FwpmEngineClose0(engine);
+        let _ = FwpmEngineClose0(engine);
         
         result
     }
@@ -90,39 +77,31 @@ impl WindowsFirewallManager {
         }
     }
 
-    unsafe fn cleanup_all_internal(&self) -> Result<(), String> {
-        let mut engine: HANDLE = 0;
-        let status = FwpmEngineOpen0(
-            ptr::null(),
-            RPC_C_AUTHN_WINNT,
-            ptr::null_mut(),
-            ptr::null(),
-            &mut engine,
-        );
+    unsafe fn cleanup_all_internal(&self) -> windows::core::Result<()> {
+        let mut engine = HANDLE::default();
+        FwpmEngineOpen0(None, RPC_C_AUTHN_DEFAULT, None, None, &mut engine)?;
 
-        if status != 0 {
-            return Err(format!("打开 WFP 引擎失败: 0x{:X}", status));
-        }
-
-        // WFP 规则会在引擎关闭时自动清理（非持久化规则）
-        FwpmEngineClose0(engine);
+        // 删除所有规则（WFP 规则通过 ID 删除，这里简化处理）
+        // 实际应该保存规则 ID，这里重新打开引擎会自动清理
+        
+        let _ = FwpmEngineClose0(engine);
         Ok(())
     }
 
-    unsafe fn get_interface_index(&self) -> Result<u32, String> {
+    unsafe fn get_interface_index(&self) -> windows::core::Result<u32> {
         let mut size = 15000u32;
         let mut buffer = vec![0u8; size as usize];
 
         let ret = GetAdaptersAddresses(
-            AF_UNSPEC as u32,
+            AF_UNSPEC.0 as u32,
             0,
-            ptr::null_mut(),
-            buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH,
+            None,
+            Some(buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH),
             &mut size,
         );
 
         if ret != 0 {
-            return Err(format!("GetAdaptersAddresses 失败: {}", ret));
+            return Err(windows::core::Error::from_win32());
         }
 
         let mut current = buffer.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
@@ -152,30 +131,29 @@ impl WindowsFirewallManager {
             current = adapter.Next;
         }
 
-        Err(format!("未找到接口: {}", self.actual_name))
+        Err(windows::core::Error::from_win32())
     }
 
-    unsafe fn add_all_rules(&self, engine: HANDLE, if_index: u32) -> Result<(), String> {
+    unsafe fn add_all_rules(&self, engine: HANDLE, if_index: u32) -> windows::core::Result<()> {
         // 程序 UDP 规则
         self.add_app_protocol_rule(engine, 17, "UDP")?;
         // 程序 TCP 规则
         self.add_app_protocol_rule(engine, 6, "TCP")?;
         
         // 虚拟网卡全协议规则
-        self.add_interface_rule(engine, if_index, "Inbound", FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4)?;
-        self.add_interface_rule(engine, if_index, "Outbound", FWPM_LAYER_ALE_AUTH_CONNECT_V4)?;
+        self.add_interface_rule(engine, if_index, "Inbound", &FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4)?;
+        self.add_interface_rule(engine, if_index, "Outbound", &FWPM_LAYER_ALE_AUTH_CONNECT_V4)?;
         
         Ok(())
     }
 
-    unsafe fn add_app_protocol_rule(&self, engine: HANDLE, protocol: u8, protocol_name: &str) -> Result<(), String> {
+    unsafe fn add_app_protocol_rule(&self, engine: HANDLE, protocol: u8, protocol_name: &str) -> windows::core::Result<()> {
         let exe_path = std::env::current_exe()
-            .map_err(|e| format!("获取程序路径失败: {}", e))?;
+            .map_err(|_| windows::core::Error::from_win32())?;
         let exe_path_str = exe_path.to_string_lossy();
         let exe_path_wide: Vec<u16> = exe_path_str.encode_utf16().chain(Some(0)).collect();
 
         let rule_name = format!("VNT Virtual Network - {}", protocol_name);
-        let rule_name_wide: Vec<u16> = rule_name.encode_utf16().chain(Some(0)).collect();
 
         // 条件：应用程序路径
         let mut blob = FWP_BYTE_BLOB {
@@ -206,31 +184,37 @@ impl WindowsFirewallManager {
             },
         };
 
-        let mut conditions = [condition_app, condition_proto];
+        let conditions = [condition_app, condition_proto];
 
         // 创建过滤器
-        let mut filter: FWPM_FILTER0 = mem::zeroed();
-        filter.displayData.name = rule_name_wide.as_ptr() as *mut _;
-        filter.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V4;
-        filter.action.r#type = FWP_ACTION_PERMIT;
-        filter.numFilterConditions = 2;
-        filter.filterCondition = conditions.as_mut_ptr();
-        filter.weight.r#type = FWP_EMPTY;
+        let filter = FWPM_FILTER0 {
+            displayData: FWPM_DISPLAY_DATA0 {
+                name: windows::core::PWSTR(rule_name.encode_utf16().chain(Some(0)).collect::<Vec<_>>().as_mut_ptr()),
+                description: windows::core::PWSTR(std::ptr::null_mut()),
+            },
+            layerKey: FWPM_LAYER_ALE_AUTH_CONNECT_V4,
+            action: FWPM_ACTION0 {
+                r#type: FWP_ACTION_PERMIT,
+                Anonymous: Default::default(),
+            },
+            numFilterConditions: 2,
+            filterCondition: conditions.as_ptr() as *mut _,
+            weight: FWP_VALUE0 {
+                r#type: FWP_EMPTY,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
 
         let mut id = 0u64;
-        let status = FwpmFilterAdd0(engine, &filter, ptr::null_mut(), &mut id);
-
-        if status != 0 {
-            return Err(format!("添加程序 {} 规则失败: 0x{:X}", protocol_name, status));
-        }
+        FwpmFilterAdd0(engine, &filter, None, Some(&mut id))?;
 
         log::info!("已添加程序 {} 规则 (ID: {})", protocol_name, id);
         Ok(())
     }
 
-    unsafe fn add_interface_rule(&self, engine: HANDLE, if_index: u32, direction: &str, layer: GUID) -> Result<(), String> {
+    unsafe fn add_interface_rule(&self, engine: HANDLE, if_index: u32, direction: &str, layer: &GUID) -> windows::core::Result<()> {
         let rule_name = format!("VNT-Interface-{} ({})", self.device_name, direction);
-        let rule_name_wide: Vec<u16> = rule_name.encode_utf16().chain(Some(0)).collect();
 
         // 创建条件：接口索引
         let mut condition = FWPM_FILTER_CONDITION0 {
@@ -245,20 +229,27 @@ impl WindowsFirewallManager {
         };
 
         // 创建过滤器
-        let mut filter: FWPM_FILTER0 = mem::zeroed();
-        filter.displayData.name = rule_name_wide.as_ptr() as *mut _;
-        filter.layerKey = layer;
-        filter.action.r#type = FWP_ACTION_PERMIT;
-        filter.numFilterConditions = 1;
-        filter.filterCondition = &mut condition as *mut _;
-        filter.weight.r#type = FWP_EMPTY;
+        let filter = FWPM_FILTER0 {
+            displayData: FWPM_DISPLAY_DATA0 {
+                name: windows::core::PWSTR(rule_name.encode_utf16().chain(Some(0)).collect::<Vec<_>>().as_mut_ptr()),
+                description: windows::core::PWSTR(std::ptr::null_mut()),
+            },
+            layerKey: *layer,
+            action: FWPM_ACTION0 {
+                r#type: FWP_ACTION_PERMIT,
+                Anonymous: Default::default(),
+            },
+            numFilterConditions: 1,
+            filterCondition: &mut condition as *mut _,
+            weight: FWP_VALUE0 {
+                r#type: FWP_EMPTY,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
 
         let mut id = 0u64;
-        let status = FwpmFilterAdd0(engine, &filter, ptr::null_mut(), &mut id);
-
-        if status != 0 {
-            return Err(format!("添加接口规则失败 {}: 0x{:X}", rule_name, status));
-        }
+        FwpmFilterAdd0(engine, &filter, None, Some(&mut id))?;
 
         log::info!("已添加接口规则: {} (ID: {})", rule_name, id);
         Ok(())
