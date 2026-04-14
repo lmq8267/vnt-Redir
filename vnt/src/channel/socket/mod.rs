@@ -127,7 +127,7 @@ pub fn get_interface(dest_name: String) -> anyhow::Result<(LocalInterface, Ipv4A
             if iface.index == index {
                 for addr in &iface.addr {
                     if let IpAddr::V4(ip) = addr.ip() {
-                        log::info!("按索引找到网卡接口 {}: {} ({})", index, iface.name, ip);
+                        log::info!("按索引找到网卡: Index={}, GUID={}, IP={}", index, iface.name, ip);
                         return Ok((
                             LocalInterface {
                                 index: iface.index,
@@ -147,7 +147,7 @@ pub fn get_interface(dest_name: String) -> anyhow::Result<(LocalInterface, Ipv4A
         if iface.name == dest_name {
             for addr in &iface.addr {
                 if let IpAddr::V4(ip) = addr.ip() {
-                    log::info!("按名称找到网卡接口: {} ({})", iface.name, ip);
+                    log::info!("按 GUID/名称找到网卡: {}, IP={}", iface.name, ip);
                     return Ok((
                         LocalInterface {
                             index: iface.index,
@@ -165,129 +165,95 @@ pub fn get_interface(dest_name: String) -> anyhow::Result<(LocalInterface, Ipv4A
     #[cfg(target_os = "windows")]
     {
         if let Ok((iface_index, iface_name, ip)) = get_interface_by_friendly_name(&dest_name) {
-            log::info!("按友好名称找到网卡接口 '{}': {} index={} ({})", dest_name, iface_name, iface_index, ip);
             return Ok((LocalInterface { index: iface_index }, ip));
         }
     }
     
-    Err(anyhow!("未找到指定名称/索引的网卡接口 '{}' ", dest_name))
+    Err(anyhow!("未找到指定的网卡 '{}'，请检查网卡名称、索引或友好名称是否正确", dest_name))
 }
 
 #[cfg(target_os = "windows")]
 fn get_interface_by_friendly_name(friendly_name: &str) -> anyhow::Result<(u32, String, Ipv4Addr)> {
-    use std::process::Command;
+    use std::ptr;
+    use windows_sys::Win32::NetworkManagement::IpHelper::{
+        GetAdaptersAddresses, IP_ADAPTER_ADDRESSES_LH, GAA_FLAG_INCLUDE_PREFIX,
+    };
+    use windows_sys::Win32::Networking::WinSock::{AF_INET, SOCKADDR_IN};
     
-    // 使用 netsh 获取接口信息
-    let output = Command::new("netsh")
-        .args(&["interface", "ipv4", "show", "interfaces"])
-        .output()?;
+    // 分配初始缓冲区
+    let mut buffer_size: u32 = 15000;
+    let mut buffer: Vec<u8> = vec![0; buffer_size as usize];
     
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    // 调用 GetAdaptersAddresses
+    let result = unsafe {
+        GetAdaptersAddresses(
+            AF_INET as u32,
+            GAA_FLAG_INCLUDE_PREFIX,
+            ptr::null_mut(),
+            buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH,
+            &mut buffer_size,
+        )
+    };
     
-    // 解析输出找到匹配的友好名称
-    // 格式类似：
-    // Idx     Met         MTU          State                Name
-    // ---  ----------  ----------  ------------  ---------------------------
-    //   1          75  4294967295  connected     Loopback Pseudo-Interface 1
-    //  12          25        1500  connected     以太网
+    if result != 0 {
+        return Err(anyhow!("GetAdaptersAddresses 失败，错误码: {}", result));
+    }
     
-    for line in stdout.lines().skip(3) {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 5 {
-            if let Ok(idx) = parts[0].parse::<u32>() {
-                // 友好名称可能包含空格，从第5个字段开始拼接
-                let name = parts[4..].join(" ");
-                if name == friendly_name {
-                    // 找到索引后，通过 NetworkInterface 获取 IP 和 GUID
-                    let network_interfaces = NetworkInterface::show()?;
-                    for iface in network_interfaces {
-                        if iface.index == idx {
-                            for addr in iface.addr {
-                                if let IpAddr::V4(ip) = addr.ip() {
-                                    return Ok((idx, iface.name, ip));
-                                }
-                            }
+    // 遍历适配器列表
+    let mut adapter_ptr = buffer.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
+    while !adapter_ptr.is_null() {
+        let adapter = unsafe { &*adapter_ptr };
+        
+        // 获取友好名称
+        let friendly_name_ptr = adapter.FriendlyName;
+        if !friendly_name_ptr.is_null() {
+            let mut len = 0;
+            while unsafe { *friendly_name_ptr.offset(len) } != 0 {
+                len += 1;
+            }
+            let friendly_name_slice = unsafe { std::slice::from_raw_parts(friendly_name_ptr, len as usize) };
+            let adapter_friendly_name = String::from_utf16_lossy(friendly_name_slice);
+            
+            // 匹配友好名称（支持带空格的名称，如 "WLAN 5"）
+            if adapter_friendly_name == friendly_name {
+                let if_index = unsafe { adapter.Anonymous1.Anonymous.IfIndex };
+                
+                // 获取 IPv4 地址
+                let mut unicast_addr_ptr = adapter.FirstUnicastAddress;
+                while !unicast_addr_ptr.is_null() {
+                    let unicast_addr = unsafe { &*unicast_addr_ptr };
+                    let sockaddr = unicast_addr.Address.lpSockaddr;
+                    
+                    if !sockaddr.is_null() {
+                        let family = unsafe { (*sockaddr).sa_family };
+                        if family == AF_INET as u16 {
+                            let sockaddr_in = sockaddr as *const SOCKADDR_IN;
+                            let ip_bytes = unsafe { (*sockaddr_in).sin_addr.S_un.S_un_b };
+                            let ip = Ipv4Addr::new(ip_bytes.s_b1, ip_bytes.s_b2, ip_bytes.s_b3, ip_bytes.s_b4);
+                            
+                            // 获取 GUID 名称
+                            let adapter_name_ptr = adapter.AdapterName;
+                            let adapter_name = if !adapter_name_ptr.is_null() {
+                                unsafe { std::ffi::CStr::from_ptr(adapter_name_ptr as *const i8) }
+                                    .to_string_lossy()
+                                    .to_string()
+                            } else {
+                                String::from("Unknown")
+                            };
+                            
+                            log::info!("通过友好名称 '{}' 找到网卡: GUID={}, Index={}, IP={}", 
+                                friendly_name, adapter_name, if_index, ip);
+                            return Ok((if_index, adapter_name, ip));
                         }
                     }
+                    
+                    unicast_addr_ptr = unicast_addr.Next;
                 }
             }
         }
-    }
-    
-    Err(anyhow!("Friendly name '{}' not found", friendly_name))
-}
-
-pub fn get_default_interface() -> anyhow::Result<(LocalInterface, Ipv4Addr)> {
-    use std::process::Command;
-    
-    #[cfg(target_os = "linux")]
-    {
-        let output = Command::new("ip").args(&["route", "show", "default"]).output()?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        // 解析 "default via 192.168.1.1 dev eth0 ..."
-        for line in stdout.lines() {
-            if let Some(dev_pos) = line.find(" dev ") {
-                let after_dev = &line[dev_pos + 5..];
-                if let Some(dev_name) = after_dev.split_whitespace().next() {
-                    return get_interface(dev_name.to_string());
-                }
-            }
-        }
-    }
-    
-    #[cfg(target_os = "macos")]
-    {
-        let output = Command::new("route").args(&["-n", "get", "default"]).output()?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        // 解析 "interface: en0"
-        for line in stdout.lines() {
-            if line.trim().starts_with("interface:") {
-                if let Some(dev_name) = line.split(':').nth(1) {
-                    return get_interface(dev_name.trim().to_string());
-                }
-            }
-        }
-    }
-    
-    #[cfg(target_os = "windows")]
-    {
-        // Windows 通过 route print 获取默认路由
-        let output = Command::new("route").args(&["print", "0.0.0.0"]).output()?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
         
-        log::debug!("route print 0.0.0.0 output:\n{}", stdout);
-        
-        // 解析 "0.0.0.0          0.0.0.0     192.168.1.1   192.168.1.100     25"
-        // 格式：Network Destination  Netmask  Gateway  Interface  Metric
-        for line in stdout.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("0.0.0.0") {
-                log::debug!("found 0.0.0.0 line: {}", trimmed);
-                let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                log::debug!("parsed parts: {:?}", parts);
-                // 需要至少 5 个字段：目标 掩码 网关 接口 跃点
-                if parts.len() >= 5 && parts[0] == "0.0.0.0" && parts[1] == "0.0.0.0" {
-                    // parts[3] 是接口 IP，通过它找到对应的网卡索引
-                    if let Ok(interface_ip) = parts[3].parse::<Ipv4Addr>() {
-                        log::debug!("interface IP: {}", interface_ip);
-                        let network_interfaces = NetworkInterface::show()?;
-                        for iface in network_interfaces {
-                            for addr in &iface.addr {
-                                if let IpAddr::V4(ip) = addr.ip() {
-                                    if ip == interface_ip {
-                                        log::info!("自动检测到 Windows 默认出口网卡: {} index={} ip={}", iface.name, iface.index, ip);
-                                        return Ok((LocalInterface { index: iface.index }, ip));
-                                    }
-                                }
-                            }
-                        }
-                        log::warn!("找到接口 IP {} 但未匹配到网卡", interface_ip);
-                    }
-                }
-            }
-        }
-        log::warn!("route print 命令输出无法解析到默认出口网卡，将不绑定至特定接口，内置IP代理功能可能无效");
+        adapter_ptr = adapter.Next;
     }
     
-    Err(anyhow!("未能检测到默认网络出口网卡接口，内置IP代理功能可能无效"))
+    Err(anyhow!("未找到友好名称为 '{}' 的网卡", friendly_name))
 }

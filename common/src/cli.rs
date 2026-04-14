@@ -77,7 +77,7 @@ pub fn parse_args_config() -> anyhow::Result<Option<(Config, Vec<String>, bool)>
     opts.optmulti("", "vnt-mapping", "vnt-mapping", "<mapping>");
     opts.optopt("f", "", "配置文件", "<conf>");
     opts.optopt("", "compressor", "压缩算法", "<lz4>");
-    opts.optopt("", "local-dev", "指定本地ipv4网卡名称", "<NAME>");
+    opts.optopt("", "local-dev", "指定本地物理网卡（留空则由系统自动路由）\n                      Windows支持：友好名称（如\"以太网\"）、GUID、索引号\n                      Linux/macOS/Android：网卡名（如 eth0、wlan0）", "<NAME>");
     opts.optflag("", "disable-stats", "关闭流量统计");
     opts.optflag("", "allow-wg", "允许接入WireGuard");
     //"后台运行时,查看其他设备列表"

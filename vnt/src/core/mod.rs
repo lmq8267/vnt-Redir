@@ -173,24 +173,20 @@ impl Config {
         }
         in_ips.sort_by(|(dest1, _, _), (dest2, _, _)| dest2.cmp(dest1));
         let (local_interface, local_ipv4) = if let Some(local_dev) = local_dev {
-            let (default_interface, ip) = crate::channel::socket::get_interface(local_dev)?;
-            log::info!("default_interface = {:?} local_ip= {ip}", default_interface);
-            (default_interface, Some(ip))
-        } else {
-            // 自动获取默认路由的出口网卡
-            log::info!("未指定 --local-dev 参数，尝试自动检测默认出口网卡...");
-            match crate::channel::socket::get_default_interface() {
+            match crate::channel::socket::get_interface(local_dev.clone()) {
                 Ok((default_interface, ip)) => {
-                    log::info!("✓ 自动检测成功: default_interface = {:?} local_ip = {}", default_interface, ip);
+                    log::info!("已绑定网卡: {:?} IP={}", default_interface, ip);
                     (default_interface, Some(ip))
                 }
                 Err(e) => {
-                    log::warn!("✗ 自动检测失败: {:?}", e);
-                    log::warn!("将不绑定物理网卡，内置IP代理功能可能无效");
-                    log::warn!("建议手动指定: --local-dev <网卡名/索引>");
+                    log::warn!("无法识别网卡 '{}': {}", local_dev, e);
+                    log::warn!("将不绑定特定网卡，由系统自动路由");
                     (LocalInterface::default(), None)
                 }
             }
+        } else {
+            log::info!("未指定 --local-dev 参数，不绑定特定网卡（由系统自动路由）");
+            (LocalInterface::default(), None)
         };
         Ok(Self {
             #[cfg(feature = "integrated_tun")]
