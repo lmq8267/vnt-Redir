@@ -102,19 +102,19 @@ jobs:
         run: |
           mkdir -p /opt/dk
           docker pull --platform linux/amd64 lmq8267/vnt:${{ env.tags }}
-          docker save -o /opt/dk/vnt-cli-x86_64-docker.tar lmq8267/vnt:${{ env.tags }}
+          docker save -o /opt/dk/vnt-x86_64-docker-${{ env.tags }}.tar lmq8267/vnt:${{ env.tags }}
 
           docker pull --platform linux/386 lmq8267/vnt:${{ env.tags }}
-          docker save -o /opt/dk/vnt-cli-386-docker.tar lmq8267/vnt:${{ env.tags }}
+          docker save -o /opt/dk/vnt-i386-docker-${{ env.tags }}.tar lmq8267/vnt:${{ env.tags }}
 
           docker pull --platform linux/arm64 lmq8267/vnt:${{ env.tags }}
-          docker save -o /opt/dk/vnt-cli-arm64-docker.tar lmq8267/vnt:${{ env.tags }}
+          docker save -o /opt/dk/vnt-arm64-docker-${{ env.tags }}.tar lmq8267/vnt:${{ env.tags }}
 
           docker pull --platform linux/arm/v7 lmq8267/vnt:${{ env.tags }}
-          docker save -o /opt/dk/vnt-cli-armv7-docker.tar lmq8267/vnt:${{ env.tags }}
+          docker save -o /opt/dk/vnt-armv7-docker-${{ env.tags }}.tar lmq8267/vnt:${{ env.tags }}
 
           docker pull --platform linux/arm/v6 lmq8267/vnt:${{ env.tags }}
-          docker save -o /opt/dk/vnt-cli-armv5-docker.tar lmq8267/vnt:${{ env.tags }}
+          docker save -o /opt/dk/vnt-armv6-docker-${{ env.tags }}.tar lmq8267/vnt:${{ env.tags }}
           echo "build_time=$(TZ=UTC-8 date '+%Y年%m月%d日%H:%M:%S' | jq -sRr @uri)" >> $GITHUB_ENV
 
       - name: 发布docker镜像到Release
