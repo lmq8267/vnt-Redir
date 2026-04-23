@@ -98,3 +98,31 @@ jobs:
           ghcr.io/${{ github.repository_owner }}/vnt-redir:${{ env.tags }}
          platforms: linux/amd64,linux/386,linux/arm64,linux/arm/v7,linux/arm/v6
          context: /opt/vnt
+      - name: Save Docker Image
+        run: |
+          mkdir -p /opt/dk
+          docker pull --platform linux/amd64 lmq8267/vnt:${{ env.tags }}
+          docker save -o /opt/dk/vnt-cli-x86_64-docker.tar lmq8267/vnt:${{ env.tags }}
+
+          docker pull --platform linux/386 lmq8267/vnt:${{ env.tags }}
+          docker save -o /opt/dk/vnt-cli-386-docker.tar lmq8267/vnt:${{ env.tags }}
+
+          docker pull --platform linux/arm64 lmq8267/vnt:${{ env.tags }}
+          docker save -o /opt/dk/vnt-cli-arm64-docker.tar lmq8267/vnt:${{ env.tags }}
+
+          docker pull --platform linux/arm/v7 lmq8267/vnt:${{ env.tags }}
+          docker save -o /opt/dk/vnt-cli-armv7-docker.tar lmq8267/vnt:${{ env.tags }}
+
+          docker pull --platform linux/arm/v6 lmq8267/vnt:${{ env.tags }}
+          docker save -o /opt/dk/vnt-cli-armv5-docker.tar lmq8267/vnt:${{ env.tags }}
+          echo "build_time=$(TZ=UTC-8 date '+%Y年%m月%d日%H:%M:%S' | jq -sRr @uri)" >> $GITHUB_ENV
+
+      - name: 发布docker镜像到Release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: /opt/dk/*.tar
+          tag: ${{ env.tags }}
+          overwrite: true
+          file_glob: true
+
