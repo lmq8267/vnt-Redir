@@ -170,6 +170,17 @@ fn create_device0(config: &DeviceConfig) -> io::Result<Arc<SyncDevice>> {
             }
         }
 
+        // Windows 上 .mtu() 会同时强制设置 IPv6 MTU，若系统禁用了 IPv6 会报错导致启动失败
+        // 改用 mtu_v4 只设置 IPv4 MTU，再单独尝试设置 IPv6 MTU，失败则忽略
+        #[cfg(target_os = "windows")]
+        let device = {
+            let dev = tun_builder.mtu_v4(config.mtu as u16).build_sync()?;
+            if let Err(e) = dev.set_mtu_v6(config.mtu as u16) {
+                log::warn!("设置IPv6 MTU失败(可忽略，系统可能未启用IPv6): {:?}", e);
+            }
+            dev
+        };
+        #[cfg(not(target_os = "windows"))]
         let device = tun_builder.mtu(config.mtu as u16).build_sync()?;
         Ok(Arc::new(device))
     }
