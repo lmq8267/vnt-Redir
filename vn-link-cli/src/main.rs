@@ -37,9 +37,9 @@ async fn main0(config: Config, vn_link_config: VnLinkConfig, _show_cmd: bool) {
     }
     for x in &vn_link_config.mapping {
         if x.protocol.is_tcp() {
-            println!("TCP vnt addr mapping 127.0.0.1:{}->{}", x.src_port, x.dest)
+            println!("TCP vnt addr mapping {}->{}", x.src_addr, x.dest)
         } else {
-            println!("UDP vnt addr mapping 127.0.0.1:{}->{}", x.src_port, x.dest)
+            println!("UDP vnt addr mapping {}->{}", x.src_addr, x.dest)
         }
     }
 

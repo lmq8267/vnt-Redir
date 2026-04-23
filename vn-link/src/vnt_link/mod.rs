@@ -150,10 +150,9 @@ impl VnLink {
             if item.protocol == LinkProtocol::Udp {
                 let lwip_udp_write = self.lwip_udp_write.clone();
                 let in_udp_map = self.in_udp_map.clone();
-                //只能本机访问，不然不同IP的相同来源端口会有问题
-                let udp = UdpSocket::bind(format!("127.0.0.1:{}", item.src_port))
+                let udp = UdpSocket::bind(item.src_addr)
                     .await
-                    .with_context(|| format!("udp bind failed {}", item.src_port))?;
+                    .with_context(|| format!("udp bind failed {}", item.src_addr))?;
                 tokio::spawn(async move {
                     tokio::select! {
                         _ = shutdown_rx_.changed() => {}
@@ -167,9 +166,9 @@ impl VnLink {
                     }
                 });
             } else {
-                let listener = TcpListener::bind(format!("127.0.0.1:{}", item.src_port))
+                let listener = TcpListener::bind(item.src_addr)
                     .await
-                    .with_context(|| format!("tcp bind failed {}", item.src_port))?;
+                    .with_context(|| format!("tcp bind failed {}", item.src_addr))?;
                 tokio::spawn(async move {
                     tokio::select! {
                         _ = shutdown_rx_.changed() => {}
