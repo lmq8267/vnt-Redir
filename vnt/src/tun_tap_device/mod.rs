@@ -11,6 +11,6 @@ pub mod tun_create_helper;
 pub mod vnt_device;
 
 #[cfg(target_os = "windows")]
-pub mod windows_firewall;
-#[cfg(target_os = "windows")]
 pub mod windows_adapter;
+#[cfg(target_os = "windows")]
+pub mod windows_firewall;

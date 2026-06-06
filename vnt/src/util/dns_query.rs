@@ -1,14 +1,14 @@
+use crate::channel::socket::LocalInterface;
+use anyhow::Context;
+use dns_parser::{Builder, Packet, QueryClass, QueryType, RData, ResponseCode};
+use http_req::request::{RedirectPolicy, Request};
+use http_req::uri::Uri;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::str::FromStr;
 use std::time::Duration;
 use std::{io, thread};
-use http_req::request::{Request, RedirectPolicy};
-use http_req::uri::Uri;
-use crate::channel::socket::LocalInterface;
-use anyhow::Context;
-use dns_parser::{Builder, Packet, QueryClass, QueryType, RData, ResponseCode};
 
 thread_local! {
     static HISTORY: RefCell<HashMap<SocketAddr,usize>> = RefCell::new(HashMap::new());
@@ -97,7 +97,6 @@ pub fn dns_query_all(
             // 执行重定向检查
             if let Some(stripped) = redirect_domain {
                 if let Some(redirected_url) = check_for_redirect(&stripped)? {
-
                     // 去掉 URL 开头的协议部分
                     let final_domain = remove_http_prefix(&redirected_url);
                     println!("Server Address: {}", final_domain);
@@ -149,7 +148,7 @@ pub fn dns_query_all(
                     }
                     continue;
                 }
-                
+
                 let end_index = current_domain
                     .rfind(':')
                     .with_context(|| format!("{:?} not port", current_domain))?;
@@ -248,9 +247,7 @@ fn check_for_redirect(domain: &String) -> anyhow::Result<Option<String>> {
 
         // 解析 URL
         let uri = match Uri::try_from(url.as_str()) {
-            Ok(u) => {
-                u
-            }
+            Ok(u) => u,
             Err(e) => {
                 println!("解析地址失败: {}", e);
                 return Ok(last_redirect_url);
@@ -275,7 +272,7 @@ fn check_for_redirect(domain: &String) -> anyhow::Result<Option<String>> {
         };
 
         let body_str = String::from_utf8_lossy(&response_body);
-        let cleaned_body = body_str.replace('\n', "").replace('\r', ""); 
+        let cleaned_body = body_str.replace('\n', "").replace('\r', "");
         println!("Response Body: {}", cleaned_body);
         // 处理 3XX 重定向
         if response.status_code().is_redirect() {
@@ -288,7 +285,6 @@ fn check_for_redirect(domain: &String) -> anyhow::Result<Option<String>> {
                 return Ok(last_redirect_url);
             }
         }
-
         // 处理 200 响应
         else if response.status_code().is_success() {
             for line in body_str.lines() {
@@ -306,10 +302,11 @@ fn check_for_redirect(domain: &String) -> anyhow::Result<Option<String>> {
 
 /// 去掉 http:// 或 https:// 前缀
 fn remove_http_prefix(url: &str) -> String {
-    let url = url.trim_start_matches("http://")
-                 .trim_start_matches("https://");
+    let url = url
+        .trim_start_matches("http://")
+        .trim_start_matches("https://");
     let url = url.trim_end_matches('/');
-    
+
     url.to_string()
 }
 

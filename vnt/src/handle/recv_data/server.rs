@@ -114,18 +114,17 @@ impl<Call: VntCallback, Device: DeviceWrite> PacketHandler for ServerPacketHandl
             .route_table
             .update_read_time(&net_packet.source(), &route_key);
         if net_packet.protocol() == Protocol::Error
-            && net_packet.transport_protocol()
-                == {
-                    #[cfg(any(target_os = "ios", target_os = "tvos"))]
-                    {
-                        let protocol_value: u8 = crate::protocol::error_packet::Protocol::NoKey.into();
-                        protocol_value
-                    }
-                    #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
-                    {
-                        crate::protocol::error_packet::Protocol::NoKey.into()
-                    }
+            && net_packet.transport_protocol() == {
+                #[cfg(any(target_os = "ios", target_os = "tvos"))]
+                {
+                    let protocol_value: u8 = crate::protocol::error_packet::Protocol::NoKey.into();
+                    protocol_value
                 }
+                #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
+                {
+                    crate::protocol::error_packet::Protocol::NoKey.into()
+                }
+            }
         {
             //服务端通知客户端上传密钥
             #[cfg(feature = "server_encrypt")]
@@ -410,11 +409,12 @@ impl<Call: VntCallback, Device: DeviceWrite> ServerPacketHandler<Call, Device> {
                                         "device_fd == 0".into(),
                                     ));
                                 } else {
-                                    let device = unsafe { tun_rs::SyncDevice::from_fd(device_fd as _) };
-                                    if let Err(e) = self.tun_device_helper.start(
-                                        Arc::new(device),
-                                        self.config_info.allow_wire_guard,
-                                    ) {
+                                    let device =
+                                        unsafe { tun_rs::SyncDevice::from_fd(device_fd as _) };
+                                    if let Err(e) = self
+                                        .tun_device_helper
+                                        .start(Arc::new(device), self.config_info.allow_wire_guard)
+                                    {
                                         self.callback.error(ErrorInfo::new_msg(
                                             ErrorType::FailedToCrateDevice,
                                             format!("{:?}", e),

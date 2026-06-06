@@ -120,14 +120,19 @@ pub fn bind_udp(
 
 pub fn get_interface(dest_name: String) -> anyhow::Result<(LocalInterface, Ipv4Addr)> {
     let network_interfaces = NetworkInterface::show()?;
-    
+
     // 尝试作为接口索引解析
     if let Ok(index) = dest_name.parse::<u32>() {
         for iface in &network_interfaces {
             if iface.index == index {
                 for addr in &iface.addr {
                     if let IpAddr::V4(ip) = addr.ip() {
-                        log::info!("按索引找到网卡: Index={}, GUID={}, IP={}", index, iface.name, ip);
+                        log::info!(
+                            "按索引找到网卡: Index={}, GUID={}, IP={}",
+                            index,
+                            iface.name,
+                            ip
+                        );
                         return Ok((
                             LocalInterface {
                                 index: iface.index,
@@ -141,7 +146,7 @@ pub fn get_interface(dest_name: String) -> anyhow::Result<(LocalInterface, Ipv4A
             }
         }
     }
-    
+
     // 尝试作为网卡名称匹配（GUID 或 Unix 名称）
     for iface in &network_interfaces {
         if iface.name == dest_name {
@@ -160,7 +165,7 @@ pub fn get_interface(dest_name: String) -> anyhow::Result<(LocalInterface, Ipv4A
             }
         }
     }
-    
+
     // Windows: 尝试通过友好名称查找
     #[cfg(target_os = "windows")]
     {
@@ -168,22 +173,25 @@ pub fn get_interface(dest_name: String) -> anyhow::Result<(LocalInterface, Ipv4A
             return Ok((LocalInterface { index: iface_index }, ip));
         }
     }
-    
-    Err(anyhow!("未找到指定的网卡 '{}'，请检查网卡名称、索引或友好名称是否正确", dest_name))
+
+    Err(anyhow!(
+        "未找到指定的网卡 '{}'，请检查网卡名称、索引或友好名称是否正确",
+        dest_name
+    ))
 }
 
 #[cfg(target_os = "windows")]
 fn get_interface_by_friendly_name(friendly_name: &str) -> anyhow::Result<(u32, String, Ipv4Addr)> {
     use std::ptr;
     use windows_sys::Win32::NetworkManagement::IpHelper::{
-        GetAdaptersAddresses, IP_ADAPTER_ADDRESSES_LH, GAA_FLAG_INCLUDE_PREFIX,
+        GetAdaptersAddresses, GAA_FLAG_INCLUDE_PREFIX, IP_ADAPTER_ADDRESSES_LH,
     };
     use windows_sys::Win32::Networking::WinSock::{AF_INET, SOCKADDR_IN};
-    
+
     // 分配初始缓冲区
     let mut buffer_size: u32 = 15000;
     let mut buffer: Vec<u8> = vec![0; buffer_size as usize];
-    
+
     // 调用 GetAdaptersAddresses
     let result = unsafe {
         GetAdaptersAddresses(
@@ -194,16 +202,16 @@ fn get_interface_by_friendly_name(friendly_name: &str) -> anyhow::Result<(u32, S
             &mut buffer_size,
         )
     };
-    
+
     if result != 0 {
         return Err(anyhow!("GetAdaptersAddresses 失败，错误码: {}", result));
     }
-    
+
     // 遍历适配器列表
     let mut adapter_ptr = buffer.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
     while !adapter_ptr.is_null() {
         let adapter = unsafe { &*adapter_ptr };
-        
+
         // 获取友好名称
         let friendly_name_ptr = adapter.FriendlyName;
         if !friendly_name_ptr.is_null() {
@@ -211,26 +219,32 @@ fn get_interface_by_friendly_name(friendly_name: &str) -> anyhow::Result<(u32, S
             while unsafe { *friendly_name_ptr.offset(len) } != 0 {
                 len += 1;
             }
-            let friendly_name_slice = unsafe { std::slice::from_raw_parts(friendly_name_ptr, len as usize) };
+            let friendly_name_slice =
+                unsafe { std::slice::from_raw_parts(friendly_name_ptr, len as usize) };
             let adapter_friendly_name = String::from_utf16_lossy(friendly_name_slice);
-            
+
             // 匹配友好名称（支持带空格的名称，如 "WLAN 5"）
             if adapter_friendly_name == friendly_name {
                 let if_index = unsafe { adapter.Anonymous1.Anonymous.IfIndex };
-                
+
                 // 获取 IPv4 地址
                 let mut unicast_addr_ptr = adapter.FirstUnicastAddress;
                 while !unicast_addr_ptr.is_null() {
                     let unicast_addr = unsafe { &*unicast_addr_ptr };
                     let sockaddr = unicast_addr.Address.lpSockaddr;
-                    
+
                     if !sockaddr.is_null() {
                         let family = unsafe { (*sockaddr).sa_family };
                         if family == AF_INET as u16 {
                             let sockaddr_in = sockaddr as *const SOCKADDR_IN;
                             let ip_bytes = unsafe { (*sockaddr_in).sin_addr.S_un.S_un_b };
-                            let ip = Ipv4Addr::new(ip_bytes.s_b1, ip_bytes.s_b2, ip_bytes.s_b3, ip_bytes.s_b4);
-                            
+                            let ip = Ipv4Addr::new(
+                                ip_bytes.s_b1,
+                                ip_bytes.s_b2,
+                                ip_bytes.s_b3,
+                                ip_bytes.s_b4,
+                            );
+
                             // 获取 GUID 名称
                             let adapter_name_ptr = adapter.AdapterName;
                             let adapter_name = if !adapter_name_ptr.is_null() {
@@ -240,20 +254,25 @@ fn get_interface_by_friendly_name(friendly_name: &str) -> anyhow::Result<(u32, S
                             } else {
                                 String::from("Unknown")
                             };
-                            
-                            log::info!("通过友好名称 '{}' 找到网卡: GUID={}, Index={}, IP={}", 
-                                friendly_name, adapter_name, if_index, ip);
+
+                            log::info!(
+                                "通过友好名称 '{}' 找到网卡: GUID={}, Index={}, IP={}",
+                                friendly_name,
+                                adapter_name,
+                                if_index,
+                                ip
+                            );
                             return Ok((if_index, adapter_name, ip));
                         }
                     }
-                    
+
                     unicast_addr_ptr = unicast_addr.Next;
                 }
             }
         }
-        
+
         adapter_ptr = adapter.Next;
     }
-    
+
     Err(anyhow!("未找到友好名称为 '{}' 的网卡", friendly_name))
 }

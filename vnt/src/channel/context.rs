@@ -112,6 +112,9 @@ impl ContextInner {
     pub fn set_default_route_key(&self, route_key: RouteKey) {
         self.default_route_key.store(Some(route_key));
     }
+    pub fn clear_default_route_key(&self) {
+        self.default_route_key.store(None);
+    }
     /// 通过sub_udp_socket是否为空来判断是否为锥形网络
     pub fn is_cone(&self) -> bool {
         self.sub_udp_socket.read().is_empty()
@@ -164,6 +167,27 @@ impl ContextInner {
         }
         Ok(())
     }
+    pub fn add_reconnect_udp_socket(
+        &self,
+        udp_socket_sender: &AcceptSocketSender<Option<Vec<mio::net::UdpSocket>>>,
+    ) -> anyhow::Result<usize> {
+        let udp = crate::channel::socket::bind_udp(
+            "0.0.0.0:0".parse().unwrap(),
+            &self.default_interface,
+        )?;
+        let udp: UdpSocket = udp.into();
+        let mut write_guard = self.sub_udp_socket.write();
+        let index = self.main_len() + write_guard.len();
+
+        let mut mio_vec = Vec::with_capacity(write_guard.len() + 1);
+        for udp in write_guard.iter() {
+            mio_vec.push(mio::net::UdpSocket::from_std(udp.try_clone()?));
+        }
+        mio_vec.push(mio::net::UdpSocket::from_std(udp.try_clone()?));
+        udp_socket_sender.try_add_socket(Some(mio_vec))?;
+        write_guard.push(udp);
+        Ok(index)
+    }
     #[inline]
     pub fn channel_num(&self) -> usize {
         self.v4_len
@@ -204,8 +228,18 @@ impl ContextInner {
         buf: &NetPacket<B>,
         addr: SocketAddr,
     ) -> io::Result<()> {
+        let mut metered = false;
         if self.protocol.is_udp() {
-            if addr.is_ipv4() {
+            if let Some(key) = self.default_route_key.load() {
+                if key.protocol().is_udp() && key.addr == addr {
+                    self.send_by_key(buf, key)?;
+                    metered = true;
+                } else if addr.is_ipv4() {
+                    self.send_main_udp(0, buf.buffer(), addr)?
+                } else {
+                    self.send_main_udp(self.v4_len, buf.buffer(), addr)?
+                }
+            } else if addr.is_ipv4() {
                 self.send_main_udp(0, buf.buffer(), addr)?
             } else {
                 self.send_main_udp(self.v4_len, buf.buffer(), addr)?
@@ -220,8 +254,10 @@ impl ContextInner {
                 ));
             }
         }
-        if let Some(up_traffic_meter) = &self.up_traffic_meter {
-            up_traffic_meter.add_traffic(buf.destination(), buf.data_len());
+        if !metered {
+            if let Some(up_traffic_meter) = &self.up_traffic_meter {
+                up_traffic_meter.add_traffic(buf.destination(), buf.data_len());
+            }
         }
         Ok(())
     }

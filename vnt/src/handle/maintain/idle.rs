@@ -6,14 +6,16 @@ use crossbeam_utils::atomic::AtomicCell;
 
 use crate::channel::context::ChannelContext;
 use crate::channel::idle::{Idle, IdleType};
-use crate::channel::sender::ConnectUtil;
+use crate::channel::sender::{AcceptSocketSender, ConnectUtil};
 use crate::channel::socket::LocalInterface;
-use crate::channel::ConnectProtocol;
+use crate::channel::{ConnectProtocol, RouteKey};
 use crate::handle::callback::{ConnectInfo, ErrorType};
 use crate::handle::handshaker::Handshake;
 use crate::handle::{BaseConfigInfo, ConnectStatus, CurrentDeviceInfo};
 use crate::util::{address_choose, dns_query_all, Scheduler};
 use crate::{ErrorInfo, VntCallback};
+
+const RECONNECT_REBIND_INTERVAL: usize = 3;
 
 pub fn idle_route<Call: VntCallback>(
     scheduler: &Scheduler,
@@ -37,6 +39,7 @@ pub fn idle_gateway<Call: VntCallback>(
     current_device_info: Arc<AtomicCell<CurrentDeviceInfo>>,
     config: BaseConfigInfo,
     connect_util: ConnectUtil,
+    udp_socket_sender: AcceptSocketSender<Option<Vec<mio::net::UdpSocket>>>,
     call: Call,
     mut connect_count: usize,
     handshake: Handshake,
@@ -46,6 +49,7 @@ pub fn idle_gateway<Call: VntCallback>(
         &current_device_info,
         &config,
         &connect_util,
+        &udp_socket_sender,
         &call,
         &mut connect_count,
         &handshake,
@@ -57,6 +61,7 @@ pub fn idle_gateway<Call: VntCallback>(
             current_device_info,
             config,
             connect_util,
+            udp_socket_sender,
             call,
             connect_count,
             handshake,
@@ -72,6 +77,7 @@ fn idle_gateway0<Call: VntCallback>(
     current_device: &AtomicCell<CurrentDeviceInfo>,
     config: &BaseConfigInfo,
     connect_util: &ConnectUtil,
+    udp_socket_sender: &AcceptSocketSender<Option<Vec<mio::net::UdpSocket>>>,
     call: &Call,
     connect_count: &mut usize,
     handshake: &Handshake,
@@ -81,6 +87,7 @@ fn idle_gateway0<Call: VntCallback>(
         current_device,
         config,
         connect_util,
+        udp_socket_sender,
         call,
         connect_count,
         handshake,
@@ -121,6 +128,7 @@ fn check_gateway_channel<Call: VntCallback>(
     current_device_info: &AtomicCell<CurrentDeviceInfo>,
     config: &BaseConfigInfo,
     connect_util: &ConnectUtil,
+    udp_socket_sender: &AcceptSocketSender<Option<Vec<mio::net::UdpSocket>>>,
     call: &Call,
     count: &mut usize,
     handshake: &Handshake,
@@ -129,14 +137,65 @@ fn check_gateway_channel<Call: VntCallback>(
     if current_device.status.offline() {
         *count += 1;
         let connect_protocol = context.main_protocol();
+        let mut dns_ok = true;
         if connect_protocol.is_transport() {
             // 传输层的协议需要探测服务器地址
-            current_device =
+            let (next_device, resolved) =
                 domain_request0(current_device_info, config, context.default_interface());
+            current_device = next_device;
+            dns_ok = resolved;
         }
         //需要重连
         call.connect(ConnectInfo::new(*count, current_device.connect_server));
         log::info!("发送握手请求,{:?}", config);
+        let force_new_route = dns_ok && *count % RECONNECT_REBIND_INTERVAL == 0;
+        if force_new_route {
+            let request_packet = handshake.handshake_request_packet(config.server_secret)?;
+            match connect_protocol {
+                ConnectProtocol::UDP => {
+                    match context.add_reconnect_udp_socket(udp_socket_sender) {
+                        Ok(index) => {
+                            context.clear_default_route_key();
+                            let route_key = RouteKey::new(
+                                ConnectProtocol::UDP,
+                                index,
+                                current_device.connect_server,
+                            );
+                            log::info!(
+                                "重连失败达到{}次，使用新的UDP本地端口重连:{:?}",
+                                *count,
+                                route_key
+                            );
+                            context.send_by_key(&request_packet, route_key)?;
+                        }
+                        Err(e) => {
+                            log::warn!("创建UDP重连端口失败:{:?}", e);
+                        }
+                    }
+                    return Ok(());
+                }
+                ConnectProtocol::TCP => {
+                    context.clear_default_route_key();
+                    log::info!("重连失败达到{}次，使用随机TCP源端口重连", *count);
+                    connect_util.try_connect_tcp_punch(
+                        request_packet.into_buffer(),
+                        current_device.connect_server,
+                    );
+                    return Ok(());
+                }
+                ConnectProtocol::WS | ConnectProtocol::WSS => {
+                    context.clear_default_route_key();
+                    log::info!(
+                        "重连失败达到{}次，重新建立{}连接",
+                        *count,
+                        config.server_addr
+                    );
+                    connect_util
+                        .try_connect_ws(request_packet.into_buffer(), config.server_addr.clone());
+                    return Ok(());
+                }
+            }
+        }
         if let Err(e) = handshake.send(context, config.server_secret, current_device.connect_server)
         {
             log::warn!("{:?}", e);
@@ -163,8 +222,9 @@ pub fn domain_request0(
     current_device: &AtomicCell<CurrentDeviceInfo>,
     config: &BaseConfigInfo,
     default_interface: &LocalInterface,
-) -> CurrentDeviceInfo {
+) -> (CurrentDeviceInfo, bool) {
     let mut current_dev = current_device.load();
+    let mut dns_ok = false;
 
     // 探测服务端地址变化
     match dns_query_all(
@@ -173,6 +233,7 @@ pub fn domain_request0(
         default_interface,
     ) {
         Ok(addrs) => {
+            dns_ok = true;
             log::info!(
                 "domain {} dns {:?} addr {:?}",
                 config.server_addr,
@@ -206,5 +267,5 @@ pub fn domain_request0(
             log::error!("域名解析失败:{:?},domain={}", e, config.server_addr);
         }
     }
-    current_dev
+    (current_dev, dns_ok)
 }

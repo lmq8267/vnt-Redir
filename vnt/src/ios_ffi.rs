@@ -18,7 +18,7 @@ use crate::tun_tap_device::vnt_device::DeviceWrite;
 lazy_static::lazy_static! {
     /// 全局VNT实例，用于在FFI调用之间保持状态
     static ref VNT_INSTANCE: Mutex<Option<Arc<Vnt>>> = Mutex::new(None);
-    
+
     /// 停止标志
     static ref STOP_FLAG: Mutex<bool> = Mutex::new(false);
 }
@@ -31,7 +31,7 @@ impl DeviceWrite for SyncDeviceWrapper {
     fn write(&self, buf: &[u8]) -> std::io::Result<usize> {
         self.0.send(buf)
     }
-    
+
     #[cfg(feature = "integrated_tun")]
     fn into_device_adapter(self) -> crate::tun_tap_device::tun_create_helper::DeviceAdapter {
         // iOS不需要DeviceAdapter，因为设备已经从外部创建
@@ -58,7 +58,11 @@ impl VntCallback for IOSCallback {
     }
 
     fn register(&self, info: crate::handle::callback::RegisterInfo) -> bool {
-        log::info!("[iOS] 注册信息: 虚拟IP={}, 网关={}", info.virtual_ip, info.virtual_gateway);
+        log::info!(
+            "[iOS] 注册信息: 虚拟IP={}, 网关={}",
+            info.virtual_ip,
+            info.virtual_gateway
+        );
         true
     }
 
@@ -81,12 +85,12 @@ pub extern "C" fn vnt_ios_init_log(log_dir: *const libc::c_char) -> i32 {
     if log_dir.is_null() {
         return -1;
     }
-    
+
     let log_dir_str = match unsafe { CStr::from_ptr(log_dir).to_str() } {
         Ok(s) => s,
         Err(_) => return -1,
     };
-    
+
     use log::LevelFilter;
     use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
     use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
@@ -95,40 +99,49 @@ pub extern "C" fn vnt_ios_init_log(log_dir: *const libc::c_char) -> i32 {
     use log4rs::config::{Appender, Config, Root};
     use log4rs::encode::pattern::PatternEncoder;
     use std::path::PathBuf;
-    
+
     let log_path = PathBuf::from(log_dir_str);
     if !log_path.exists() {
         if let Err(_) = std::fs::create_dir_all(&log_path) {
             return -2;
         }
     }
-    
+
     let log_file = log_path.join("vnt-core.log");
     let trigger = SizeTrigger::new(10 * 1024 * 1024);
-    let roller_pattern = log_path.join("vnt-core.{}.log").to_string_lossy().to_string();
-    
+    let roller_pattern = log_path
+        .join("vnt-core.{}.log")
+        .to_string_lossy()
+        .to_string();
+
     let roller = match FixedWindowRoller::builder().build(&roller_pattern, 5) {
         Ok(r) => r,
         Err(_) => return -3,
     };
-    
+
     let policy = CompoundPolicy::new(Box::new(trigger), Box::new(roller));
-    let encoder = PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S%.3f)} [{f}:{L}] {h({l})} {M}:{m}{n}{n}");
-    
+    let encoder =
+        PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S%.3f)} [{f}:{L}] {h({l})} {M}:{m}{n}{n}");
+
     let appender = match RollingFileAppender::builder()
         .encoder(Box::new(encoder))
-        .build(log_file, Box::new(policy)) {
+        .build(log_file, Box::new(policy))
+    {
         Ok(a) => a,
         Err(_) => return -4,
     };
-    
+
     let config = match Config::builder()
         .appender(Appender::builder().build("rolling_file", Box::new(appender)))
-        .build(Root::builder().appender("rolling_file").build(LevelFilter::Info)) {
+        .build(
+            Root::builder()
+                .appender("rolling_file")
+                .build(LevelFilter::Info),
+        ) {
         Ok(c) => c,
         Err(_) => return -5,
     };
-    
+
     match log4rs::init_config(config) {
         Ok(_) => {
             log::info!("[iOS] 日志系统初始化成功: {}", log_dir_str);
@@ -234,7 +247,8 @@ pub extern "C" fn vnt_ios_start_tunnel(
 
     // 创建VNT配置
     log::info!("[iOS] 正在创建VNT配置...");
-    let config = match create_ios_config(&server_addr_str, &token_str, &device_name_str, mtu as u32) {
+    let config = match create_ios_config(&server_addr_str, &token_str, &device_name_str, mtu as u32)
+    {
         Ok(cfg) => {
             log::info!("[iOS] VNT配置创建成功");
             cfg
@@ -254,20 +268,20 @@ pub extern "C" fn vnt_ios_start_tunnel(
     let result = Vnt::new(config, callback);
     #[cfg(not(feature = "integrated_tun"))]
     let result = Vnt::new_device(config, callback, device);
-    
+
     match result {
         Ok(vnt) => {
             log::info!("[iOS] VNT核心启动成功");
-            
+
             // 保存VNT实例
             if let Ok(mut instance) = VNT_INSTANCE.lock() {
                 *instance = Some(Arc::new(vnt));
                 log::info!("[iOS] VNT实例已保存");
             }
-            
+
             // 启动后台保活线程
             start_keepalive_thread();
-            
+
             log::info!("[iOS] VNT隧道完全启动");
             0
         }
@@ -366,31 +380,31 @@ fn create_ios_config(
         device_id,
         device_name.to_string(),
         server_addr.to_string(),
-        vec![],                 // name_servers
-        vec![],                 // stun_server
-        vec![],                 // in_ips
-        vec![],                 // out_ips
-        None,                   // password
-        Some(mtu),              // mtu
-        None,                   // ip
-        false,                  // no_proxy
-        false,                  // server_encrypt
-        crate::cipher::CipherModel::AesGcm,  // cipher_model
-        false,                  // finger
-        crate::channel::punch::PunchModel::IPv4,  // punch_model
-        None,                   // ports
-        false,                  // first_latency
-        None,                   // device_name
-        crate::channel::UseChannelType::All,  // use_channel_type
-        None,                   // packet_loss_rate
-        0,                      // packet_delay
+        vec![],                                  // name_servers
+        vec![],                                  // stun_server
+        vec![],                                  // in_ips
+        vec![],                                  // out_ips
+        None,                                    // password
+        Some(mtu),                               // mtu
+        None,                                    // ip
+        false,                                   // no_proxy
+        false,                                   // server_encrypt
+        crate::cipher::CipherModel::AesGcm,      // cipher_model
+        false,                                   // finger
+        crate::channel::punch::PunchModel::IPv4, // punch_model
+        None,                                    // ports
+        false,                                   // first_latency
+        None,                                    // device_name
+        crate::channel::UseChannelType::All,     // use_channel_type
+        None,                                    // packet_loss_rate
+        0,                                       // packet_delay
         #[cfg(feature = "port_mapping")]
-        vec![],                 // port_mapping_list
-        crate::compression::Compressor::None,  // compressor
-        false,                  // enable_traffic
-        false,                  // allow_wire_guard
-        None,                   // local_dev
-        false,                  // disable_relay
+        vec![], // port_mapping_list
+        crate::compression::Compressor::None,    // compressor
+        false,                                   // enable_traffic
+        false,                                   // allow_wire_guard
+        None,                                    // local_dev
+        false,                                   // disable_relay
     )
     .context("创建iOS配置失败")
 }
@@ -399,7 +413,7 @@ fn create_ios_config(
 fn start_keepalive_thread() {
     thread::spawn(|| {
         log::info!("[iOS] 保活线程已启动");
-        
+
         loop {
             // 检查停止标志
             if let Ok(flag) = STOP_FLAG.lock() {
@@ -408,13 +422,13 @@ fn start_keepalive_thread() {
                     break;
                 }
             }
-            
+
             // 检查VNT状态
             if let Ok(instance) = VNT_INSTANCE.lock() {
                 if let Some(vnt) = instance.as_ref() {
                     let status = vnt.connection_status();
                     log::debug!("[iOS] 保活检查: 在线={}", status.online());
-                    
+
                     // 如果VNT已停止，退出保活线程
                     if vnt.is_stopped() {
                         log::info!("[iOS] VNT已停止，保活线程退出");
@@ -424,11 +438,11 @@ fn start_keepalive_thread() {
                     log::debug!("[iOS] 保活检查: 无VNT实例");
                 }
             }
-            
+
             // 每30秒检查一次
             thread::sleep(Duration::from_secs(30));
         }
-        
+
         log::info!("[iOS] 保活线程已退出");
     });
 }

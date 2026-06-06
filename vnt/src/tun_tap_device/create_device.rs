@@ -16,14 +16,13 @@ pub fn create_device<Call: VntCallback>(
     // Windows 平台：启动前清理和准备
     #[cfg(all(target_os = "windows", feature = "integrated_tun"))]
     {
-        let device_name = config.device_name
-            .as_deref()
-            .unwrap_or(DEFAULT_TUN_NAME);
-        
+        let device_name = config.device_name.as_deref().unwrap_or(DEFAULT_TUN_NAME);
+
         log::info!("准备创建虚拟网卡: {}", device_name);
-        
+
         // 1. 清理已存在的同名网卡
-        let adapter_manager = crate::tun_tap_device::windows_adapter::WindowsAdapterManager::new(device_name);
+        let adapter_manager =
+            crate::tun_tap_device::windows_adapter::WindowsAdapterManager::new(device_name);
         if let Err(e) = adapter_manager.check_and_cleanup() {
             log::warn!("清理旧网卡失败: {:?}", e);
             call.error(ErrorInfo::new_msg(
@@ -32,7 +31,7 @@ pub fn create_device<Call: VntCallback>(
             ));
         }
     }
-    
+
     // 2. 创建虚拟网卡
     let device = match create_device0(&config) {
         Ok(device) => {
@@ -47,28 +46,31 @@ pub fn create_device<Call: VntCallback>(
             ));
         }
     };
-    
+
     // Windows 平台：配置防火墙
     #[cfg(all(target_os = "windows", feature = "integrated_tun"))]
     {
-        let device_name = config.device_name
-            .as_deref()
-            .unwrap_or(DEFAULT_TUN_NAME);
-        
+        let device_name = config.device_name.as_deref().unwrap_or(DEFAULT_TUN_NAME);
+
         // 从设备获取实际接口名
         #[cfg(windows)]
         let actual_name = device.name().ok();
-        
+
         match actual_name {
             Some(ref actual_name) => {
-                log::info!("配置防火墙 - 规则名: {}, 绑定接口: {}", device_name, actual_name);
-                
+                log::info!(
+                    "配置防火墙 - 规则名: {}, 绑定接口: {}",
+                    device_name,
+                    actual_name
+                );
+
                 let firewall_manager = crate::tun_tap_device::windows_firewall::WindowsFirewallManager::new_with_actual(device_name, actual_name);
                 if let Err(e) = firewall_manager.configure_all() {
                     log::warn!("配置防火墙失败: {:?}", e);
                     call.error(ErrorInfo::new_msg(
                         ErrorType::Warn,
-                        "警告：无法自动配置防火墙规则，可能需要手动放行或以管理员身份运行".to_string(),
+                        "警告：无法自动配置防火墙规则，可能需要手动放行或以管理员身份运行"
+                            .to_string(),
                     ));
                 }
             }
@@ -80,19 +82,19 @@ pub fn create_device<Call: VntCallback>(
             }
         }
     }
-    
+
     // iOS/tvOS平台的路由由NEPacketTunnelProvider管理，无需手动配置
     #[cfg(any(target_os = "ios", target_os = "tvos"))]
     {
         log::info!("iOS/tvOS平台检测到，路由配置由系统VPN框架管理");
         return Ok(device);
     }
-    
+
     #[cfg(windows)]
     let index = device.if_index().unwrap();
     #[cfg(all(unix, not(any(target_os = "ios", target_os = "tvos"))))]
     let index = &device.name().unwrap();
-    
+
     #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
     {
         if let Err(e) = add_route(index, Ipv4Addr::BROADCAST, Ipv4Addr::BROADCAST) {
@@ -128,10 +130,10 @@ fn create_device0(config: &DeviceConfig) -> io::Result<Arc<SyncDevice>> {
     {
         return Err(io::Error::new(
             io::ErrorKind::Unsupported,
-            "iOS/tvOS平台不支持直接创建TUN设备"
+            "iOS/tvOS平台不支持直接创建TUN设备",
         ));
     }
-    
+
     #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
     {
         let mut tun_builder = tun_rs::DeviceBuilder::new();
@@ -264,7 +266,11 @@ fn delete_adapter_info_from_reg(dev_name: &str) -> std::io::Result<()> {
 pub fn add_route(index: u32, dest: Ipv4Addr, netmask: Ipv4Addr) -> io::Result<()> {
     let cmd = format!(
         "route add {:?} mask {:?} {:?} metric {} if {}",
-        dest, netmask, Ipv4Addr::UNSPECIFIED, 1, index
+        dest,
+        netmask,
+        Ipv4Addr::UNSPECIFIED,
+        1,
+        index
     );
     exe_cmd(&cmd)
 }
@@ -289,7 +295,10 @@ pub fn exe_cmd(cmd: &str) -> io::Result<()> {
 
 #[cfg(target_os = "macos")]
 pub fn add_route(name: &str, address: Ipv4Addr, netmask: Ipv4Addr) -> io::Result<()> {
-    let cmd = format!("route -n add {} -netmask {} -interface {}", address, netmask, name);
+    let cmd = format!(
+        "route -n add {} -netmask {} -interface {}",
+        address, netmask, name
+    );
     exe_cmd(&cmd)?;
     Ok(())
 }
@@ -305,7 +314,12 @@ pub fn add_route(name: &str, address: Ipv4Addr, netmask: Ipv4Addr) -> io::Result
     let cmd = if netmask.is_broadcast() {
         format!("route add -host {:?} {}", address, name)
     } else {
-        format!("route add -net {}/{} {}", address, u32::from(netmask).count_ones(), name)
+        format!(
+            "route add -net {}/{} {}",
+            address,
+            u32::from(netmask).count_ones(),
+            name
+        )
     };
     exe_cmd(&cmd)?;
     Ok(())
@@ -315,9 +329,16 @@ pub fn add_route(name: &str, address: Ipv4Addr, netmask: Ipv4Addr) -> io::Result
 pub fn exe_cmd(cmd: &str) -> io::Result<std::process::Output> {
     use std::process::Command;
     println!("exe cmd: {}", cmd);
-    let out = Command::new("sh").arg("-c").arg(cmd).output().expect("sh exec error!");
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .output()
+        .expect("sh exec error!");
     if !out.status.success() {
-        return Err(io::Error::new(io::ErrorKind::Other, format!("cmd={},out={:?}", cmd, out)));
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("cmd={},out={:?}", cmd, out),
+        ));
     }
     Ok(out)
 }

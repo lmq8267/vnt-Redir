@@ -1,13 +1,13 @@
 // Windows 网卡管理
 
 use std::io;
-use std::ptr;
 use std::mem;
+use std::ptr;
 
+use windows_sys::core::GUID;
 use windows_sys::Win32::Devices::DeviceAndDriverInstallation::*;
 use windows_sys::Win32::Foundation::*;
 use windows_sys::Win32::System::Registry::*;
-use windows_sys::core::GUID;
 
 pub struct WindowsAdapterManager {
     device_name: String,
@@ -97,7 +97,10 @@ impl WindowsAdapterManager {
                 continue;
             }
 
-            let desc_len = desc_buf.iter().position(|&c| c == 0).unwrap_or(desc_buf.len());
+            let desc_len = desc_buf
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(desc_buf.len());
             let desc = String::from_utf16_lossy(&desc_buf[..desc_len]);
 
             // log::info!("检测到网卡设备: {}", desc);
@@ -116,7 +119,7 @@ impl WindowsAdapterManager {
                 Some(n) => {
                     log::info!("检测到 Wintun: {} ({})", n, desc);
                     n
-                },
+                }
                 None => {
                     // 无法获取连接名，使用设备描述进行匹配
                     log::info!("检测到 Wintun (无连接名): {}", desc);
@@ -129,19 +132,23 @@ impl WindowsAdapterManager {
 
             // =========================
             // 精准匹配规则
-            // 1. 完全相同：vnt-tun 
-            // 2. 带括号后缀：vnt-tun (Wintun...) 
+            // 1. 完全相同：vnt-tun
+            // 2. 带括号后缀：vnt-tun (Wintun...)
             // 3. 带空格序号：vnt-tun 4, vnt-tun 5
             // 4. 设备描述：vnt-tun Tunnel (精确匹配，不误删 vnt-tun4 Tunnel)
             // 不匹配： vnt-tun4 或 vnt-tun1
             // =========================
-            let match_ok =
-                name_lower == device_lower
+            let match_ok = name_lower == device_lower
                 || name_lower.starts_with(&(device_lower.clone() + " "))
                 || name_lower.starts_with(&(device_lower.clone() + " ("))
                 || name_lower == (device_lower.clone() + " tunnel");
 
-            log::info!("匹配检查: '{}' vs '{}' => {}", name_lower, device_lower, match_ok);
+            log::info!(
+                "匹配检查: '{}' vs '{}' => {}",
+                name_lower,
+                device_lower,
+                match_ok
+            );
 
             if !match_ok {
                 index += 1;
@@ -154,8 +161,7 @@ impl WindowsAdapterManager {
             //  删除设备
             // =========================
             let mut params: SP_REMOVEDEVICE_PARAMS = mem::zeroed();
-            params.ClassInstallHeader.cbSize =
-                mem::size_of::<SP_CLASSINSTALL_HEADER>() as u32;
+            params.ClassInstallHeader.cbSize = mem::size_of::<SP_CLASSINSTALL_HEADER>() as u32;
             params.ClassInstallHeader.InstallFunction = DIF_REMOVE;
             params.Scope = DI_REMOVEDEVICE_GLOBAL;
 
@@ -236,7 +242,10 @@ pub fn get_actual_adapter_name(device_name: &str) -> io::Result<String> {
                 continue;
             }
 
-            let desc_len = desc_buf.iter().position(|&c| c == 0).unwrap_or(desc_buf.len());
+            let desc_len = desc_buf
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(desc_buf.len());
             let desc = String::from_utf16_lossy(&desc_buf[..desc_len]);
 
             // 只处理 Wintun 或 Tunnel 设备
