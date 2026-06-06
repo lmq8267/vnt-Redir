@@ -32,6 +32,7 @@ use crate::protocol::control_packet::ControlPacket;
 use crate::protocol::error_packet::InErrorPacket;
 use crate::protocol::{ip_turn_packet, service_packet, NetPacket, Protocol, MAX_TTL};
 use crate::tun_tap_device::vnt_device::DeviceWrite;
+use crate::util::{run_hook, HookInfo};
 use crate::{proto, PeerClientInfo};
 
 /// 处理来源于服务端的包
@@ -409,16 +410,24 @@ impl<Call: VntCallback, Device: DeviceWrite> ServerPacketHandler<Call, Device> {
                                         "device_fd == 0".into(),
                                     ));
                                 } else {
-                                    let device =
-                                        unsafe { tun_rs::SyncDevice::from_fd(device_fd as _) };
-                                    if let Err(e) = self
-                                        .tun_device_helper
-                                        .start(Arc::new(device), self.config_info.allow_wire_guard)
-                                    {
-                                        self.callback.error(ErrorInfo::new_msg(
-                                            ErrorType::FailedToCrateDevice,
-                                            format!("{:?}", e),
-                                        ));
+                                    match unsafe { tun_rs::SyncDevice::from_fd(device_fd as _) } {
+                                        Ok(device) => {
+                                            if let Err(e) = self.tun_device_helper.start(
+                                                Arc::new(device),
+                                                self.config_info.allow_wire_guard,
+                                            ) {
+                                                self.callback.error(ErrorInfo::new_msg(
+                                                    ErrorType::FailedToCrateDevice,
+                                                    format!("{:?}", e),
+                                                ));
+                                            }
+                                        }
+                                        Err(e) => {
+                                            self.callback.error(ErrorInfo::new_msg(
+                                                ErrorType::FailedToCrateDevice,
+                                                format!("{:?}", e),
+                                            ));
+                                        }
                                     }
                                 }
                             }
@@ -426,6 +435,17 @@ impl<Call: VntCallback, Device: DeviceWrite> ServerPacketHandler<Call, Device> {
                     }
                     self.set_device_info_list(response.device_info_list, response.epoch as _);
                     if old.status.offline() {
+                        self.run_hook(
+                            "up",
+                            Some(route_key),
+                            context
+                                .local_port_by_key(&route_key)
+                                .or_else(|| context.default_local_port()),
+                            None,
+                            Some(virtual_ip),
+                            None,
+                            "registered",
+                        );
                         self.callback.success();
                     }
                 }
@@ -536,6 +556,17 @@ impl<Call: VntCallback, Device: DeviceWrite> ServerPacketHandler<Call, Device> {
                 crate::handle::change_status(&self.current_device, ConnectStatus::Connecting);
                 let err = ErrorInfo::new(ErrorType::Disconnect);
                 self.callback.error(err);
+                self.run_hook(
+                    "down",
+                    Some(route_key),
+                    context
+                        .local_port_by_key(&route_key)
+                        .or_else(|| context.default_local_port()),
+                    None,
+                    Some(_current_device.virtual_ip),
+                    None,
+                    "server_disconnect",
+                );
                 //掉线epoch要归零
                 {
                     let mut dev = self.device_map.lock();
@@ -614,5 +645,51 @@ impl<Call: VntCallback, Device: DeviceWrite> ServerPacketHandler<Call, Device> {
             _ => {}
         }
         Ok(())
+    }
+    fn run_hook(
+        &self,
+        event: &'static str,
+        route_key: Option<RouteKey>,
+        local_port: Option<u16>,
+        old_local_port: Option<u16>,
+        virtual_ip: Option<Ipv4Addr>,
+        reconnect_count: Option<usize>,
+        reason: &'static str,
+    ) {
+        let Some(mut hook) = HookInfo::new(self.config_info.hook.as_deref(), event) else {
+            return;
+        };
+        #[cfg(all(
+            feature = "integrated_tun",
+            any(target_os = "windows", target_os = "linux", target_os = "macos")
+        ))]
+        {
+            hook = hook.tun_name(Some(
+                self.config_info
+                    .device_name
+                    .clone()
+                    .unwrap_or_else(|| "vnt-tun".into()),
+            ));
+        }
+        hook = hook
+            .local_port(local_port)
+            .old_local_port(old_local_port)
+            .device_name(Some(self.config_info.name.clone()))
+            .device_id(Some(self.config_info.device_id.clone()))
+            .server_addr(Some(self.config_info.server_addr.clone()))
+            .virtual_ip(virtual_ip.filter(|ip| !ip.is_unspecified()))
+            .reconnect_count(reconnect_count)
+            .reason(reason);
+        if let Some(route_key) = route_key {
+            hook = hook
+                .remote_addr(Some(route_key.addr))
+                .protocol(match route_key.protocol() {
+                    crate::channel::ConnectProtocol::UDP => "udp",
+                    crate::channel::ConnectProtocol::TCP => "tcp",
+                    crate::channel::ConnectProtocol::WS => "ws",
+                    crate::channel::ConnectProtocol::WSS => "wss",
+                });
+        }
+        run_hook(hook);
     }
 }

@@ -50,6 +50,7 @@ pub struct FileConfig {
     pub allow_wire_guard: bool,
     pub local_dev: Option<String>,
     pub disable_relay: bool,
+    pub hook: Option<String>,
 }
 
 impl Default for FileConfig {
@@ -97,6 +98,7 @@ impl Default for FileConfig {
             allow_wire_guard: false,
             local_dev: None,
             disable_relay: false,
+            hook: None,
         }
     }
 }
@@ -186,7 +188,8 @@ pub fn read_config(file_path: &str) -> anyhow::Result<(Config, Vec<String>, bool
         !file_conf.disable_stats,
         file_conf.allow_wire_guard,
         file_conf.local_dev,
-        file_conf.disable_relay, 
+        file_conf.disable_relay,
+        file_conf.hook,
     )?;
 
     Ok((config, file_conf.vnt_mapping, file_conf.cmd))

@@ -16,6 +16,7 @@ use crate::external_route::ExternalRoute;
 use crate::handle::{CurrentDeviceInfo, PeerDeviceInfo};
 use crate::protocol;
 use crate::protocol::{ip_turn_packet, NetPacket};
+use crate::util::HookInfo;
 
 #[derive(Clone)]
 pub struct IpPacketSender {
@@ -239,14 +240,14 @@ impl PacketSender {
 
 #[derive(Clone)]
 pub struct ConnectUtil {
-    connect_tcp: Sender<(Vec<u8>, Option<u16>, SocketAddr)>,
-    connect_ws: Sender<(Vec<u8>, String)>,
+    connect_tcp: Sender<(Vec<u8>, Option<u16>, SocketAddr, Option<HookInfo>)>,
+    connect_ws: Sender<(Vec<u8>, String, Option<HookInfo>)>,
 }
 
 impl ConnectUtil {
     pub fn new(
-        connect_tcp: Sender<(Vec<u8>, Option<u16>, SocketAddr)>,
-        connect_ws: Sender<(Vec<u8>, String)>,
+        connect_tcp: Sender<(Vec<u8>, Option<u16>, SocketAddr, Option<HookInfo>)>,
+        connect_ws: Sender<(Vec<u8>, String, Option<HookInfo>)>,
     ) -> Self {
         Self {
             connect_tcp,
@@ -254,18 +255,33 @@ impl ConnectUtil {
         }
     }
     pub fn try_connect_tcp(&self, buf: Vec<u8>, addr: SocketAddr) {
-        if self.connect_tcp.try_send((buf, None, addr)).is_err() {
+        if self.connect_tcp.try_send((buf, None, addr, None)).is_err() {
             log::warn!("try_connect_tcp failed {}", addr);
         }
     }
     pub fn try_connect_tcp_punch(&self, buf: Vec<u8>, addr: SocketAddr) {
+        self.try_connect_tcp_punch_with_hook(buf, addr, None)
+    }
+    pub fn try_connect_tcp_punch_with_hook(
+        &self,
+        buf: Vec<u8>,
+        addr: SocketAddr,
+        hook: Option<HookInfo>,
+    ) {
         // 打洞的连接可以绑定随机端口
-        if self.connect_tcp.try_send((buf, Some(0), addr)).is_err() {
+        if self
+            .connect_tcp
+            .try_send((buf, Some(0), addr, hook))
+            .is_err()
+        {
             log::warn!("try_connect_tcp failed {}", addr);
         }
     }
     pub fn try_connect_ws(&self, buf: Vec<u8>, addr: String) {
-        if self.connect_ws.try_send((buf, addr)).is_err() {
+        self.try_connect_ws_with_hook(buf, addr, None)
+    }
+    pub fn try_connect_ws_with_hook(&self, buf: Vec<u8>, addr: String, hook: Option<HookInfo>) {
+        if self.connect_ws.try_send((buf, addr, hook)).is_err() {
             log::warn!("try_connect_ws failed");
         }
     }

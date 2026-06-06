@@ -72,6 +72,7 @@ pub struct BaseConfigInfo {
     pub device_name: Option<String>,
     pub allow_wire_guard: bool,
     pub default_interface: LocalInterface,
+    pub hook: Option<String>,
 }
 
 impl BaseConfigInfo {
@@ -93,6 +94,7 @@ impl BaseConfigInfo {
         device_name: Option<String>,
         allow_wire_guard: bool,
         default_interface: LocalInterface,
+        hook: Option<String>,
     ) -> Self {
         Self {
             name,
@@ -112,6 +114,7 @@ impl BaseConfigInfo {
             device_name,
             allow_wire_guard,
             default_interface,
+            hook,
         }
     }
 }

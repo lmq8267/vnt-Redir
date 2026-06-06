@@ -405,6 +405,7 @@ fn create_ios_config(
         false,                                   // allow_wire_guard
         None,                                    // local_dev
         false,                                   // disable_relay
+        None,                                    // hook
     )
     .context("创建iOS配置失败")
 }

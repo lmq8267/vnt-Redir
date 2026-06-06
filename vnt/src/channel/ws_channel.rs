@@ -15,12 +15,12 @@ use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use crate::channel::context::ChannelContext;
 use crate::channel::handler::RecvChannelHandler;
 use crate::channel::sender::PacketSender;
-use crate::util::StopManager;
+use crate::util::{run_hook, HookInfo, StopManager};
 
 /// ws协议，
 /// 暂时只允许用ws连服务端，不能用ws打洞/连客户端
 pub fn ws_connect_accept<H>(
-    receiver: Receiver<(Vec<u8>, String)>,
+    receiver: Receiver<(Vec<u8>, String, Option<HookInfo>)>,
     recv_handler: H,
     context: ChannelContext,
     stop_manager: StopManager,
@@ -52,18 +52,18 @@ where
 }
 
 async fn connect_ws_handle<H>(
-    mut receiver: Receiver<(Vec<u8>, String)>,
+    mut receiver: Receiver<(Vec<u8>, String, Option<HookInfo>)>,
     recv_handler: H,
     context: ChannelContext,
 ) where
     H: RecvChannelHandler,
 {
     let mut index = 0;
-    while let Some((data, url)) = receiver.recv().await {
+    while let Some((data, url, hook)) = receiver.recv().await {
         let recv_handler = recv_handler.clone();
         let context = context.clone();
         tokio::spawn(async move {
-            if let Err(e) = connect_ws(data, url, recv_handler, context, index).await {
+            if let Err(e) = connect_ws(data, url, recv_handler, context, index, hook).await {
                 log::warn!("发送失败,ws链接终止:{:?}", e);
             }
         });
@@ -78,6 +78,7 @@ async fn connect_ws<H>(
     recv_handler: H,
     context: ChannelContext,
     index: usize,
+    hook: Option<HookInfo>,
 ) -> anyhow::Result<()>
 where
     H: RecvChannelHandler,
@@ -89,7 +90,7 @@ where
         if count > 3 {
             Err(anyhow::anyhow!("发生多次重定向，链接终止"))?
         }
-        match tokio::time::timeout(Duration::from_secs(3), connect_async(url)).await? {
+        match tokio::time::timeout(Duration::from_secs(3), connect_async(url.clone())).await? {
             Ok(rs) => break rs,
             Err(e) => {
                 if let Error::Http(res) = &e {
@@ -123,10 +124,18 @@ where
         }
     };
     log::info!("ws协议握手 {:?}", response);
+    let protocol = if url.starts_with("wss://") {
+        ConnectProtocol::WSS
+    } else {
+        ConnectProtocol::WS
+    };
+    if let Some(hook) = hook {
+        run_hook(hook);
+    }
     ws.send(Message::Binary(data)).await?;
     let (mut ws_write, ws_read) = ws.split();
     let (sender, mut receiver) = channel::<Vec<u8>>(100);
-    let route_key = RouteKey::new(ConnectProtocol::WS, index, WS_ADDR);
+    let route_key = RouteKey::new(protocol, index, WS_ADDR);
 
     context
         .packet_map

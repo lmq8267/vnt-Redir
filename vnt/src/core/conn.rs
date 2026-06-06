@@ -158,6 +158,7 @@ impl VntInner {
             config.device_name.clone(),
             config.allow_wire_guard,
             default_interface.clone(),
+            config.hook.clone(),
         );
         // 服务停止管理器
         let stop_manager = {
@@ -381,6 +382,7 @@ pub fn start<Call: VntCallback>(
         idle,
         context.clone(),
         current_device.clone(),
+        config_info.clone(),
         callback,
     );
     // 定时客户端中继检测
@@ -494,6 +496,32 @@ impl VntInner {
     }
     pub fn stop(&self) {
         log::info!("VNT 正在停止");
+        if let Some(hook) = crate::util::HookInfo::new(self.config.hook.as_deref(), "stop") {
+            #[cfg(all(
+                feature = "integrated_tun",
+                any(target_os = "windows", target_os = "linux", target_os = "macos")
+            ))]
+            let hook = hook.tun_name(Some(
+                self.config
+                    .device_name
+                    .clone()
+                    .unwrap_or_else(|| "vnt-tun".into()),
+            ));
+            let current_device = self.current_device.load();
+            let virtual_ip = if current_device.virtual_ip.is_unspecified() {
+                None
+            } else {
+                Some(current_device.virtual_ip)
+            };
+            crate::util::run_hook(
+                hook.device_name(Some(self.config.name.clone()))
+                    .device_id(Some(self.config.device_id.clone()))
+                    .virtual_ip(virtual_ip)
+                    .server_addr(Some(self.config.server_address_str.clone()))
+                    .remote_addr(Some(current_device.connect_server))
+                    .reason("stop"),
+            );
+        }
 
         // Windows 平台：清理防火墙规则和虚拟网卡
         #[cfg(all(target_os = "windows", feature = "integrated_tun"))]

@@ -16,12 +16,12 @@ use crate::channel::handler::RecvChannelHandler;
 use crate::channel::sender::PacketSender;
 use crate::channel::socket::create_tcp0;
 use crate::channel::{ConnectProtocol, RouteKey, BUFFER_SIZE, TCP_MAX_PACKET_SIZE};
-use crate::util::StopManager;
+use crate::util::{run_hook, HookInfo, StopManager};
 
 /// 监听tcp端口，等待客户端连接
 pub fn tcp_listen<H>(
     tcp_server: std::net::TcpListener,
-    receiver: Receiver<(Vec<u8>, Option<u16>, SocketAddr)>,
+    receiver: Receiver<(Vec<u8>, Option<u16>, SocketAddr, Option<HookInfo>)>,
     recv_handler: H,
     context: ChannelContext,
     stop_manager: StopManager,
@@ -67,14 +67,14 @@ where
 }
 
 async fn connect_tcp_handle<H>(
-    mut receiver: Receiver<(Vec<u8>, Option<u16>, SocketAddr)>,
+    mut receiver: Receiver<(Vec<u8>, Option<u16>, SocketAddr, Option<HookInfo>)>,
     recv_handler: H,
     context: ChannelContext,
     listener_bind_port: u16,
 ) where
     H: RecvChannelHandler,
 {
-    while let Some((data, bind_port, addr)) = receiver.recv().await {
+    while let Some((data, bind_port, addr, hook)) = receiver.recv().await {
         let recv_handler = recv_handler.clone();
         let context = context.clone();
         let bind_port = if let Some(bind_port) = bind_port {
@@ -83,7 +83,7 @@ async fn connect_tcp_handle<H>(
             listener_bind_port
         };
         tokio::spawn(async move {
-            if let Err(e) = connect_tcp0(data, addr, recv_handler, context, bind_port).await {
+            if let Err(e) = connect_tcp0(data, addr, recv_handler, context, bind_port, hook).await {
                 log::warn!("连接失败,链接终止:{:?},{:?}", addr, e);
             }
         });
@@ -96,6 +96,7 @@ async fn connect_tcp0<H>(
     recv_handler: H,
     context: ChannelContext,
     bind_port: u16,
+    hook: Option<HookInfo>,
 ) -> anyhow::Result<()>
 where
     H: RecvChannelHandler,
@@ -112,6 +113,11 @@ where
         create_tcp0(addr.is_ipv4(), 0, context.default_interface())?
     };
     let mut stream = tokio::time::timeout(Duration::from_secs(3), socket.connect(addr)).await??;
+    let local_port = stream.local_addr().ok().map(|addr| addr.port());
+    context.set_default_local_port(local_port);
+    if let Some(hook) = hook {
+        run_hook(hook.local_port(local_port).remote_addr(Some(addr)));
+    }
     tcp_write(&mut stream, &data).await?;
 
     tcp_stream_handle(stream, addr, recv_handler, context).await;

@@ -80,6 +80,12 @@ pub fn parse_args_config() -> anyhow::Result<Option<(Config, Vec<String>, bool)>
     opts.optopt("", "local-dev", "指定本地物理网卡（留空则由系统自动路由）\n                      Windows支持：友好名称（如\"以太网\"）、GUID、索引号\n                      Linux/macOS/Android：网卡名（如 eth0、wlan0）", "<NAME>");
     opts.optflag("", "disable-stats", "关闭流量统计");
     opts.optflag("", "allow-wg", "允许接入WireGuard");
+    opts.optopt(
+        "",
+        "hook",
+        "连接状态和重连端口变化时执行的完整命令，请用引号包裹",
+        "<command>",
+    );
     //"后台运行时,查看其他设备列表"
     opts.optflag("", "add", "后台运行时,添加地址");
     opts.optflag("", "list", "后台运行时,查看其他设备列表");
@@ -284,6 +290,7 @@ pub fn parse_args_config() -> anyhow::Result<Option<(Config, Vec<String>, bool)>
         let port_mapping_list = matches.opt_strs("mapping");
         let vnt_mapping_list = matches.opt_strs("vnt-mapping");
         let local_dev: Option<String> = matches.opt_get("local-dev").unwrap();
+        let hook: Option<String> = matches.opt_get("hook").unwrap();
 
         let disable_stats = matches.opt_present("disable-stats");
         let allow_wire_guard = matches.opt_present("allow-wg");
@@ -330,6 +337,7 @@ pub fn parse_args_config() -> anyhow::Result<Option<(Config, Vec<String>, bool)>
             allow_wire_guard,
             local_dev,
             disable_relay,
+            hook,
         )?;
         (config, vnt_mapping_list, cmd)
     };
@@ -379,6 +387,7 @@ fn get_description(key: &str, language: &str) -> String {
         ("--local-dev", ("本地出口网卡的名称", "name of local export network card")),
         ("--disable-stats", ("关闭流量统计", "Disable traffic statistics")),
         ("--allow-wg", ("允许接入WireGuard客户端", "Allow access to WireGuard client")),
+        ("--hook", ("连接状态、断线和重连端口变化时执行的完整命令,请用引号包裹,并自行确保权限和可运行,例如 --hook \"bash /path/hook.sh\"", "full command executed on connection state and reconnect port changes, quote it and ensure permission, e.g. --hook \"bash /path/hook.sh\"")),
         ("--list", ("后台运行时,查看其他设备列表", "View list of other devices when running in background")),
         ("--all", ("后台运行时,查看其他设备完整信息", "View complete information of other devices when running in background")),
         ("--info", ("后台运行时,查看当前设备信息", "View information of current device when running in background")),
@@ -515,9 +524,9 @@ fn print_usage(program: &str, _opts: Options) {
         "  --use-channel <p2p> {}",
         get_description("--use-channel <p2p>", &language)
     );
-    println!(  
-        "  --disable-relay     {}",  
-        get_description("--disable-relay", &language)  
+    println!(
+        "  --disable-relay     {}",
+        get_description("--disable-relay", &language)
     );
     #[cfg(feature = "integrated_tun")]
     println!(
@@ -577,6 +586,10 @@ fn print_usage(program: &str, _opts: Options) {
     println!(
         "  --allow-wg          {}",
         get_description("--allow-wg", &language)
+    );
+    println!(
+        "  --hook <command>    {}",
+        get_description("--hook", &language)
     );
     println!();
     #[cfg(feature = "command")]

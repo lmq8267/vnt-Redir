@@ -205,6 +205,7 @@ mapping:
   - tcp:0.0.0.0:82-localhost:83 # 映射tcp数据
 disable_stats: false # 为true表示关闭统计
 allow_wire_guard: false # 为true则表示允许接入wg
+hook: "sh /path/to/vnt-hook-example.sh" # 连接状态、断线、重连端口变化、停止时执行的完整命令
 ```
 
 或者需要哪个配置就加哪个，当然token是必须的
@@ -234,6 +235,85 @@ token: xxx #组网token
 ### --allow-wg
 
 允许接入WireGuard客户端，和wg混用时必须开启此参数
+
+### --hook `<command>`
+
+连接状态、断线、重连端口变化、停止时执行的完整命令。命令需要自行用引号包裹，并确保脚本有权限且可运行。
+
+示例：
+
+```shell
+--hook "sh /path/to/vnt-hook-example.sh"
+--hook "sh /path/to/vnt-hook-curl-push-example.sh"
+--hook "python3 /path/to/hook.py"
+--hook "php /path/to/hook.php"
+--hook "node /path/to/hook.js"
+```
+
+Windows路径包含空格或中文时，需要包裹脚本路径：
+
+```shell
+--hook "\"C:\中文目录\vnt hook\vnt-hook-example.bat\""
+```
+
+配置文件示例：
+
+```yaml
+hook: "sh /path/to/vnt-hook-example.sh"
+```
+
+Windows配置文件示例：
+
+```yaml
+hook: "\"C:\\中文目录\\vnt hook\\vnt-hook-example.bat\""
+```
+
+Hook命令会异步启动，vnt不会等待脚本执行完成。脚本执行失败、权限不足或命令不存在时，只会记录日志，不会导致客户端崩溃退出。无法获取的变量值会传空字符串。
+
+事件值说明：
+
+| 值 | 触发时机 | 作用 |
+| --- | --- | --- |
+| `up` | 客户端注册成功并上线时 | 可用于初始化防火墙、记录上线日志、读取虚拟IP |
+| `down` | 服务端通知断开或默认通道超时时 | 可用于记录断线、通知外部监控 |
+| `reconnect` | 连续重连失败达到阈值并重新创建连接/端口时 | 可用于处理随机端口变化，例如撤销旧端口规则并放行新端口 |
+| `stop` | 客户端停止时 | 可用于清理临时防火墙规则、状态文件等 |
+
+触发原因说明：
+
+| 值 | 对应事件 | 触发时机 | 作用 |
+| --- | --- | --- | --- |
+| `registered` | `up` | 客户端注册成功并上线时 | 表示连接或重连已经成功 |
+| `route_timeout` | `down` | 默认服务端通道路由超时时 | 表示客户端长时间未收到服务端通道数据，进入断线重连 |
+| `server_disconnect` | `down` | 收到服务端下发的断开通知时 | 表示服务端主动通知客户端断开 |
+| `rebind` | `reconnect` | 连续重连失败达到阈值，客户端清理旧连接并创建新端口/新连接时 | 表示本次开始使用新的随机端口或新连接重连 |
+| `stop` | `stop` | 客户端停止时 | 表示客户端正在退出 |
+
+传递给Hook脚本的环境变量：
+
+| 变量名 | 对应值 | 主要作用 | 可能为空 |
+| --- | --- | --- | --- |
+| `VNT_HOOK_EVENT` | 当前事件，值为 `up`、`down`、`reconnect`、`stop` | 判断脚本当前应该执行上线、断线、重连或停止逻辑 | 否 |
+| `VNT_HOOK_STATUS` | 与 `VNT_HOOK_EVENT` 相同 | 兼容按状态命名的脚本 | 否 |
+| `VNT_HOOK_PROTOCOL` | 当前默认通道协议，值为 `udp`、`tcp`、`ws`、`wss` | 判断当前连接类型，按协议处理端口或日志 | 是 |
+| `VNT_HOOK_LOCAL_PORT` | 当前新的本地随机端口 | 重连换端口后放行新端口；TCP/UDP重连成功时通常有值 | 是 |
+| `VNT_HOOK_OLD_LOCAL_PORT` | 上一次默认通道或上一次重连尝试使用的本地端口 | 重连换端口时撤销旧端口规则 | 是 |
+| `VNT_HOOK_REMOTE_ADDR` | 当前远端服务端地址，格式通常为 `ip:port` | 记录当前连接到哪个服务端地址 | 是 |
+| `VNT_HOOK_TUN_NAME` | 虚拟网卡名称 | 按虚拟网卡名设置防火墙、路由或日志 | 是 |
+| `VNT_HOOK_DEVICE_NAME` | 当前vnt设备名称，即 `name` 配置 | 识别是哪台设备触发Hook | 是 |
+| `VNT_HOOK_DEVICE_ID` | 当前vnt设备ID，即 `device_id` 配置 | 区分同一机器上的多个客户端实例，可用于状态文件名 | 是 |
+| `VNT_HOOK_VIRTUAL_IP` | 服务端分配或配置的虚拟IP | 上线后记录虚拟IP，或按IP生成规则 | 是 |
+| `VNT_HOOK_SERVER_ADDR` | 配置中的服务端地址，即 `server_address` | 记录用户配置的服务端地址，可能是域名 | 是 |
+| `VNT_HOOK_RECONNECT_COUNT` | 当前连续重连次数 | 判断是否为第几次重连触发 | 是 |
+| `VNT_HOOK_REASON` | 触发原因，例如 `registered`、`route_timeout`、`server_disconnect`、`rebind`、`stop` | 区分同一事件下的具体原因 | 是 |
+| `VNT_HOOK_PID` | 当前vnt进程ID | 记录日志、区分进程 | 否 |
+| `VNT_HOOK_TIMESTAMP` | 触发Hook时的秒级时间戳 | 记录事件时间 | 否 |
+
+示例脚本：
+
+- `documents/hooks/vnt-hook-example.sh`
+- `documents/hooks/vnt-hook-example.bat`
+- `documents/hooks/vnt-hook-curl-push-example.sh`
 
 ### --list
 

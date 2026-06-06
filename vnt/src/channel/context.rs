@@ -61,6 +61,7 @@ impl ChannelContext {
             down_traffic_meter,
             default_interface,
             default_route_key: AtomicCell::default(),
+            default_local_port: AtomicCell::default(),
         };
         Self {
             inner: Arc::new(inner),
@@ -100,6 +101,7 @@ pub struct ContextInner {
     pub(crate) down_traffic_meter: Option<TrafficMeterMultiAddress>,
     default_interface: LocalInterface,
     default_route_key: AtomicCell<Option<RouteKey>>,
+    default_local_port: AtomicCell<Option<u16>>,
 }
 
 impl ContextInner {
@@ -110,6 +112,9 @@ impl ContextInner {
         &self.default_interface
     }
     pub fn set_default_route_key(&self, route_key: RouteKey) {
+        if let Some(local_port) = self.local_port_by_key(&route_key) {
+            self.default_local_port.store(Some(local_port));
+        }
         self.default_route_key.store(Some(route_key));
     }
     pub fn clear_default_route_key(&self) {
@@ -119,6 +124,12 @@ impl ContextInner {
             }
         }
         self.default_route_key.store(None);
+    }
+    pub fn set_default_local_port(&self, local_port: Option<u16>) {
+        self.default_local_port.store(local_port);
+    }
+    pub fn default_local_port(&self) -> Option<u16> {
+        self.default_local_port.load()
     }
     /// 通过sub_udp_socket是否为空来判断是否为锥形网络
     pub fn is_cone(&self) -> bool {
@@ -175,20 +186,42 @@ impl ContextInner {
     pub fn reset_reconnect_udp_socket(
         &self,
         udp_socket_sender: &AcceptSocketSender<Option<Vec<mio::net::UdpSocket>>>,
-    ) -> anyhow::Result<usize> {
-        let udp = crate::channel::socket::bind_udp(
-            "0.0.0.0:0".parse().unwrap(),
-            &self.default_interface,
-        )?;
-        let udp: UdpSocket = udp.into();
+        server_addr: SocketAddr,
+    ) -> anyhow::Result<(usize, u16)> {
         let mut write_guard = self.sub_udp_socket.write();
         let index = self.main_len();
-
-        let mut mio_vec = Vec::with_capacity(1);
-        mio_vec.push(mio::net::UdpSocket::from_std(udp.try_clone()?));
-        udp_socket_sender.try_add_socket(Some(mio_vec))?;
-        *write_guard = vec![udp];
-        Ok(index)
+        let mut vec = Vec::with_capacity(2);
+        if self.main_udp_socket.len() > self.v4_len {
+            let (udp_v4, udp_v6) = crate::channel::bind_udp_v4_and_v6(0, &self.default_interface)?;
+            let port = udp_v4.local_addr()?.port();
+            vec.push(udp_v4);
+            vec.push(udp_v6);
+            let mut mio_vec = Vec::with_capacity(vec.len());
+            for udp in vec.iter() {
+                mio_vec.push(mio::net::UdpSocket::from_std(udp.try_clone()?));
+            }
+            udp_socket_sender.try_add_socket(Some(mio_vec))?;
+            *write_guard = vec;
+            let index = if server_addr.is_ipv6() {
+                index + 1
+            } else {
+                index
+            };
+            Ok((index, port))
+        } else {
+            let udp = crate::channel::socket::bind_udp(
+                "0.0.0.0:0".parse().unwrap(),
+                &self.default_interface,
+            )?;
+            let udp: UdpSocket = udp.into();
+            let port = udp.local_addr()?.port();
+            let mut mio_vec = Vec::with_capacity(1);
+            mio_vec.push(mio::net::UdpSocket::from_std(udp.try_clone()?));
+            vec.push(udp);
+            udp_socket_sender.try_add_socket(Some(mio_vec))?;
+            *write_guard = vec;
+            Ok((index, port))
+        }
     }
     #[inline]
     pub fn channel_num(&self) -> usize {
@@ -222,6 +255,21 @@ impl ContextInner {
             Ok(())
         } else {
             Err(io::Error::new(io::ErrorKind::Other, "overflow"))
+        }
+    }
+    pub fn local_port_by_key(&self, route_key: &RouteKey) -> Option<u16> {
+        match route_key.protocol() {
+            ConnectProtocol::UDP => {
+                if let Some(udp) = self.main_udp_socket.get(route_key.index) {
+                    udp.local_addr().ok().map(|addr| addr.port())
+                } else {
+                    self.sub_udp_socket
+                        .read()
+                        .get(route_key.index.checked_sub(self.main_len())?)
+                        .and_then(|udp| udp.local_addr().ok().map(|addr| addr.port()))
+                }
+            }
+            ConnectProtocol::TCP | ConnectProtocol::WS | ConnectProtocol::WSS => None,
         }
     }
     /// 将数据发送到默认通道，一般发往服务器才用此方法

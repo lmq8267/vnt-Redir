@@ -56,6 +56,7 @@ pub struct Config {
     pub local_ipv4: Option<Ipv4Addr>,
     pub local_interface: LocalInterface,
     pub disable_relay: bool,
+    pub hook: Option<String>,
 }
 
 impl Config {
@@ -97,6 +98,7 @@ impl Config {
         allow_wire_guard: bool,
         local_dev: Option<String>,
         disable_relay: bool,
+        hook: Option<String>,
     ) -> anyhow::Result<Self> {
         for x in stun_server.iter_mut() {
             if !x.contains(":") {
@@ -228,6 +230,7 @@ impl Config {
             local_ipv4,
             local_interface,
             disable_relay,
+            hook,
         })
     }
 }

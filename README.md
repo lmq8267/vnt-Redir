@@ -64,6 +64,8 @@ sudo insmod /lib/modules/tun.ko
 
 ### vnt-cli参数详解 [参数说明](https://github.com/vnt-dev/vnt/blob/main/vnt-cli/README.md)
 
+其中 `--hook` 可在上线、断线、重连端口变化和停止时执行用户脚本，并通过环境变量传递协议、本地新旧端口、虚拟网卡名、虚拟IP、设备信息等，详见 [Hook参数说明](https://github.com/vnt-dev/vnt/blob/main/vnt-cli/README.md#--hook-command)。
+
 **控制台输出日志**
 
 - 创建一个`log4rs.yaml`文件，和`vnt-cli`二进制程序放在一起运行即可在控制台输出日志内容方便调试，内容如下：
