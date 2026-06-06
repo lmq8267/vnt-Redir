@@ -113,6 +113,11 @@ impl ContextInner {
         self.default_route_key.store(Some(route_key));
     }
     pub fn clear_default_route_key(&self) {
+        if let Some(route_key) = self.default_route_key.load() {
+            if route_key.protocol().is_base_tcp() {
+                self.packet_map.write().remove(&route_key);
+            }
+        }
         self.default_route_key.store(None);
     }
     /// 通过sub_udp_socket是否为空来判断是否为锥形网络
@@ -167,7 +172,7 @@ impl ContextInner {
         }
         Ok(())
     }
-    pub fn add_reconnect_udp_socket(
+    pub fn reset_reconnect_udp_socket(
         &self,
         udp_socket_sender: &AcceptSocketSender<Option<Vec<mio::net::UdpSocket>>>,
     ) -> anyhow::Result<usize> {
@@ -177,15 +182,12 @@ impl ContextInner {
         )?;
         let udp: UdpSocket = udp.into();
         let mut write_guard = self.sub_udp_socket.write();
-        let index = self.main_len() + write_guard.len();
+        let index = self.main_len();
 
-        let mut mio_vec = Vec::with_capacity(write_guard.len() + 1);
-        for udp in write_guard.iter() {
-            mio_vec.push(mio::net::UdpSocket::from_std(udp.try_clone()?));
-        }
+        let mut mio_vec = Vec::with_capacity(1);
         mio_vec.push(mio::net::UdpSocket::from_std(udp.try_clone()?));
         udp_socket_sender.try_add_socket(Some(mio_vec))?;
-        write_guard.push(udp);
+        *write_guard = vec![udp];
         Ok(index)
     }
     #[inline]

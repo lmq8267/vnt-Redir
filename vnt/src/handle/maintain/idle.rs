@@ -151,11 +151,11 @@ fn check_gateway_channel<Call: VntCallback>(
         let force_new_route = dns_ok && *count % RECONNECT_REBIND_INTERVAL == 0;
         if force_new_route {
             let request_packet = handshake.handshake_request_packet(config.server_secret)?;
+            context.clear_default_route_key();
             match connect_protocol {
                 ConnectProtocol::UDP => {
-                    match context.add_reconnect_udp_socket(udp_socket_sender) {
+                    match context.reset_reconnect_udp_socket(udp_socket_sender) {
                         Ok(index) => {
-                            context.clear_default_route_key();
                             let route_key = RouteKey::new(
                                 ConnectProtocol::UDP,
                                 index,
@@ -175,7 +175,6 @@ fn check_gateway_channel<Call: VntCallback>(
                     return Ok(());
                 }
                 ConnectProtocol::TCP => {
-                    context.clear_default_route_key();
                     log::info!("重连失败达到{}次，使用随机TCP源端口重连", *count);
                     connect_util.try_connect_tcp_punch(
                         request_packet.into_buffer(),
@@ -184,7 +183,6 @@ fn check_gateway_channel<Call: VntCallback>(
                     return Ok(());
                 }
                 ConnectProtocol::WS | ConnectProtocol::WSS => {
-                    context.clear_default_route_key();
                     log::info!(
                         "重连失败达到{}次，重新建立{}连接",
                         *count,
