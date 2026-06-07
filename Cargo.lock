@@ -2089,7 +2089,9 @@ dependencies = [
  "rustls-pki-types",
  "sha1",
  "thiserror 1.0.58",
+ "url",
  "utf-8",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -2296,11 +2298,16 @@ dependencies = [
  "chrono",
  "common",
  "console",
+ "gethostname",
  "log",
  "rand",
+ "serde",
+ "serde_json",
  "signal-hook",
  "sudo",
  "thunk-rs",
+ "tungstenite",
+ "url",
  "vnt",
  "winapi",
 ]

@@ -95,6 +95,13 @@ pub fn parse_args_config() -> anyhow::Result<Option<(Config, Vec<String>, bool)>
     opts.optflag("", "chart_a", "后台运行时,查看流量统计");
     opts.optopt("", "chart_b", "后台运行时,查看流量统计", "<IP>");
     opts.optflag("", "stop", "停止后台运行");
+    opts.optopt(
+        "C",
+        "console",
+        "控制台连接地址",
+        "<ws://host:port/client/ws>",
+    );
+    opts.optopt("r", "room-id", "控制台房间ID", "<room-id>");
     opts.optflag("h", "help", "帮助");
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
@@ -357,6 +364,8 @@ fn get_description(key: &str, language: &str) -> String {
         ("-k <token>", ("使用相同的token,就能组建一个局域网络", "Use the same token to form a local network")),
         ("-n <name>", ("给设备一个名字,便于区分不同设备,默认使用系统版本", "Give the device a name to distinguish it, defaults to system version")),
         ("-d <id>", ("设备唯一标识符,不使用--ip参数时,服务端凭此参数分配虚拟ip,注意不能重复", "Device unique identifier, used by the server to allocate virtual IP when --ip parameter is not used, must be unique")),
+        ("-C <console>", ("控制台连接地址,控制台模式优先于本地组网参数,当前支持 ws:// 或 wss://", "Hub console URL, console mode has priority over local network parameters, currently supports ws:// or wss://")),
+        ("-r <room-id>", ("控制台房间ID,16位小写十六进制字符串", "Hub room id, 16 lowercase hex chars")),
         ("-s <server>", ("注册和中继服务器地址,协议支持使用tcp://和ws://和wss://,默认为udp://", "Registration and relay server address, protocols support using tcp://, ws://, and wss://, default is udp://")),
         ("-e <stun-server>", ("stun服务器,用于探测NAT类型,可使用多个地址,如-e stun.miwifi.com -e turn.cloudflare.com", "STUN server for detecting NAT type, can specify multiple addresses, e.g., -e stun.miwifi.com -e turn.cloudflare.com")),
         ("-i <in-ip>", ("配置点对网(IP代理)时使用,-i 192.168.0.0/24,10.26.0.3表示允许接收网段192.168.0.0/24的数据并转发到10.26.0.3,可指定多个网段", "Used when configuring point-to-point network (IP proxy), -i 192.168.0.0/24,10.26.0.3 allows receiving data from subnet 192.168.0.0/24 and forwarding to 10.26.0.3, specify multiple subnets")),
@@ -401,7 +410,7 @@ fn get_description(key: &str, language: &str) -> String {
     .cloned()
     .collect();
 
-    if let Some(&(zh, en)) = descriptions.get(key) {
+    if let Some(&(zh, _en)) = descriptions.get(key) {
         if language.starts_with("zh") {
             return zh.to_string(); // 返回 String 类型
         }
@@ -430,6 +439,14 @@ fn print_usage(program: &str, _opts: Options) {
     println!(
         "  -d <id>             {}",
         get_description("-d <id>", &language)
+    );
+    println!(
+        "  -C, --console <URL> {}",
+        get_description("-C <console>", &language)
+    );
+    println!(
+        "  -r, --room-id <ID>  {}",
+        get_description("-r <room-id>", &language)
     );
     println!(
         "  -s <server>         {}",

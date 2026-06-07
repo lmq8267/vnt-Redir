@@ -1,8 +1,25 @@
 use common::callback;
 use console::style;
 use vnt::core::{Config, Vnt};
+mod console_client;
 mod root_check;
 fn main() {
+    match console_client::parse_console_args() {
+        Ok(Some(config)) => {
+            if let Err(e) = console_client::run(config) {
+                log::error!("hub console error {:?}", e);
+                println!("{}", style(format!("Hub console error {:?}", e)).red());
+            }
+            return;
+        }
+        Ok(None) => {}
+        Err(e) => {
+            log::error!("hub console parse error {:?}", e);
+            println!("{}", style(format!("Hub console error {:?}", e)).red());
+            return;
+        }
+    }
+
     let (config, _vnt_link_config, cmd) = match common::cli::parse_args_config() {
         Ok(rs) => {
             if let Some(rs) = rs {
