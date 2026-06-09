@@ -96,7 +96,11 @@ impl VntInner {
         callback: Call,
         device: Device,
     ) -> anyhow::Result<Self> {
-        log::info!("config: {:?}", config);
+        if std::env::var_os("VNT_HUB_CONSOLE_REDACT").is_some() {
+            log::info!("config: {:?}", config.redacted_for_log());
+        } else {
+            log::info!("config: {:?}", config);
+        }
         let (up_traffic_meter, down_traffic_meter) = if config.enable_traffic {
             (
                 Some(TrafficMeterMultiAddress::default()),

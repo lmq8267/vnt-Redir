@@ -2,9 +2,9 @@ use std::collections::HashSet;
 use std::io;
 use std::net::Ipv4Addr;
 use vnt::channel::ConnectProtocol;
-use vnt::core::Vnt;
+use vnt::core::{redact_sensitive_value, Vnt};
 
-use crate::command::entity::{ChartA, ChartB, DeviceItem, Info, RouteItem};
+use crate::command::entity::{ChartA, ChartB, DeviceItem, HubInfo, Info, RouteItem};
 use crate::console_out;
 
 pub mod client;
@@ -16,6 +16,7 @@ pub enum CommandEnum {
     List,
     All,
     Info,
+    Hub,
     ChartA,
     ChartB(String),
     Stop,
@@ -35,6 +36,9 @@ pub fn command_str(cmd: &str, vnt: &Vnt) -> bool {
         "info" => {
             let info = command_info(&vnt);
             console_out::console_info(info);
+        }
+        "hub" => {
+            console_out::console_hub_info(HubInfo::not_hub());
         }
         "route" => {
             let route = command_route(&vnt);
@@ -74,6 +78,22 @@ pub fn command(cmd: CommandEnum) {
 
 fn command_(cmd: CommandEnum) -> io::Result<()> {
     let mut command_client = client::CommandClient::new()?;
+    let hub = command_client.hub().ok().filter(|info| info.hub_mode);
+    if let CommandEnum::Hub = cmd {
+        console_out::console_hub_info(hub.unwrap_or_else(HubInfo::not_hub));
+        return Ok(());
+    }
+    if let Some(info) = hub.as_ref() {
+        if !info.config_running && !matches!(cmd, CommandEnum::Stop) {
+            let cmd_name = command_name(&cmd);
+            console_out::console_hub_command_unavailable(cmd_name, info.clone());
+            return Ok(());
+        }
+        if let CommandEnum::Info = cmd {
+            console_out::console_hub_info(info.clone());
+            println!("------------------------------------------");
+        }
+    }
     match cmd {
         CommandEnum::Route => {
             let list = command_client.route()?;
@@ -91,6 +111,7 @@ fn command_(cmd: CommandEnum) -> io::Result<()> {
             let info = command_client.info()?;
             console_out::console_info(info);
         }
+        CommandEnum::Hub => {}
         CommandEnum::ChartA => {
             let chart = command_client.chart_a()?;
             console_out::console_chart_a(chart);
@@ -106,9 +127,22 @@ fn command_(cmd: CommandEnum) -> io::Result<()> {
     Ok(())
 }
 
+fn command_name(cmd: &CommandEnum) -> &'static str {
+    match cmd {
+        CommandEnum::Route => "route",
+        CommandEnum::List => "list",
+        CommandEnum::All => "all",
+        CommandEnum::Info => "info",
+        CommandEnum::Hub => "hub",
+        CommandEnum::ChartA => "chart_a",
+        CommandEnum::ChartB(_) => "chart_b",
+        CommandEnum::Stop => "stop",
+    }
+}
+
 pub fn command_route(vnt: &Vnt) -> Vec<RouteItem> {
     let route_table = vnt.route_table();
-    let server_addr = vnt.config().server_address_str.clone();
+    let server_addr = redact_if_hub_console(vnt.config().server_address_str.clone());
     let mut route_list = Vec::with_capacity(route_table.len());
     for (destination, routes) in route_table {
         for route in routes {
@@ -121,10 +155,11 @@ pub fn command_route(vnt: &Vnt) -> Vec<RouteItem> {
             } else {
                 route.rt.to_string()
             };
+            let route_addr = redact_if_hub_console(route.addr.to_string());
             let interface = match route.protocol {
-                ConnectProtocol::UDP => route.addr.to_string(),
+                ConnectProtocol::UDP => route_addr,
                 ConnectProtocol::TCP => {
-                    format!("tcp@{}", route.addr)
+                    format!("tcp@{}", route_addr)
                 }
                 ConnectProtocol::WS | ConnectProtocol::WSS => server_addr.clone(),
             };
@@ -240,6 +275,7 @@ pub fn command_info(vnt: &Vnt) -> Info {
     } else {
         current_device.connect_server.to_string()
     };
+    let relay_server = redact_if_hub_console(relay_server);
     let nat_type = format!("{:?}", nat_info.nat_type);
     let public_ips: Vec<String> = nat_info.public_ips.iter().map(|v| v.to_string()).collect();
     let public_ips = public_ips.join(",");
@@ -279,6 +315,14 @@ pub fn command_info(vnt: &Vnt) -> Info {
         out_ips,
         udp_listen_addr,
         tcp_listen_addr,
+    }
+}
+
+fn redact_if_hub_console(value: String) -> String {
+    if std::env::var_os("VNT_HUB_CONSOLE_REDACT").is_some() {
+        redact_sensitive_value(&value)
+    } else {
+        value
     }
 }
 

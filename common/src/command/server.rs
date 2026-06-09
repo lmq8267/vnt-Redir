@@ -14,6 +14,13 @@ impl CommandServer {
 
 impl CommandServer {
     pub fn start(self, vnt: Vnt) -> io::Result<()> {
+        self.start_with_handler(move |cmd| command_vnt(cmd, &vnt))
+    }
+
+    pub fn start_with_handler<F>(self, handler: F) -> io::Result<()>
+    where
+        F: Fn(&str) -> io::Result<String> + Send + Sync + 'static,
+    {
         let udp = if let Ok(udp) = UdpSocket::bind("127.0.0.1:39271") {
             udp
         } else {
@@ -30,7 +37,7 @@ impl CommandServer {
             let (len, addr) = udp.recv_from(&mut buf)?;
             match std::str::from_utf8(&buf[..len]) {
                 Ok(cmd) => {
-                    if let Ok(out) = command(cmd, &vnt) {
+                    if let Ok(out) = handler(cmd) {
                         if let Err(e) = udp.send_to(out.as_bytes(), addr) {
                             log::warn!("cmd={},err={:?}", cmd, e);
                         }
@@ -54,9 +61,11 @@ fn save_port(port: u16) -> io::Result<()> {
     file.sync_all()
 }
 
-fn command(cmd: &str, vnt: &Vnt) -> io::Result<String> {
+pub fn command_vnt(cmd: &str, vnt: &Vnt) -> io::Result<String> {
     let cmd = cmd.trim();
     let out_str = match cmd {
+        "hub" => serde_yaml::to_string(&crate::command::entity::HubInfo::not_hub())
+            .unwrap_or_else(|e| format!("error {:?}", e)),
         "route" => serde_yaml::to_string(&crate::command::command_route(vnt))
             .unwrap_or_else(|e| format!("error {:?}", e)),
         "list" => serde_yaml::to_string(&crate::command::command_list(vnt))

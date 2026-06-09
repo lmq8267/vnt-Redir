@@ -59,7 +59,80 @@ pub struct Config {
     pub hook: Option<String>,
 }
 
+pub fn redact_sensitive_value(value: &str) -> String {
+    if value.trim().is_empty() {
+        "None".into()
+    } else {
+        "<redacted>".into()
+    }
+}
+
+pub fn redact_sensitive_option(value: &Option<String>) -> Option<&'static str> {
+    value.as_ref().map(|_| "<redacted>")
+}
+
+pub struct RedactedConfig<'a>(&'a Config);
+
+impl std::fmt::Debug for RedactedConfig<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let config = self.0;
+        let mut debug = f.debug_struct("Config");
+        #[cfg(feature = "integrated_tun")]
+        #[cfg(target_os = "windows")]
+        debug.field("tap", &config.tap);
+        debug
+            .field("token", &"<redacted>")
+            .field("device_id", &config.device_id)
+            .field("name", &config.name)
+            .field("server_address", &redact_sensitive_value(&config.server_address.to_string()))
+            .field(
+                "server_address_str",
+                &redact_sensitive_value(&config.server_address_str),
+            )
+            .field("name_servers", &config.name_servers)
+            .field("stun_server", &config.stun_server)
+            .field("in_ips", &config.in_ips)
+            .field("out_ips", &config.out_ips)
+            .field("password", &redact_sensitive_option(&config.password))
+            .field("mtu", &config.mtu)
+            .field("protocol", &config.protocol)
+            .field("ip", &config.ip);
+        #[cfg(feature = "ip_proxy")]
+        #[cfg(feature = "integrated_tun")]
+        debug.field("no_proxy", &config.no_proxy);
+        debug
+            .field("server_encrypt", &config.server_encrypt)
+            .field("cipher_model", &config.cipher_model)
+            .field("finger", &config.finger)
+            .field("punch_model", &config.punch_model)
+            .field("ports", &config.ports)
+            .field("first_latency", &config.first_latency);
+        #[cfg(feature = "integrated_tun")]
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+        debug.field("device_name", &config.device_name);
+        debug
+            .field("use_channel_type", &config.use_channel_type)
+            .field("packet_loss_rate", &config.packet_loss_rate)
+            .field("packet_delay", &config.packet_delay);
+        #[cfg(feature = "port_mapping")]
+        debug.field("port_mapping_list", &config.port_mapping_list);
+        debug
+            .field("compressor", &config.compressor)
+            .field("enable_traffic", &config.enable_traffic)
+            .field("allow_wire_guard", &config.allow_wire_guard)
+            .field("local_ipv4", &config.local_ipv4)
+            .field("local_interface", &config.local_interface)
+            .field("disable_relay", &config.disable_relay)
+            .field("hook", &redact_sensitive_option(&config.hook))
+            .finish()
+    }
+}
+
 impl Config {
+    pub fn redacted_for_log(&self) -> RedactedConfig<'_> {
+        RedactedConfig(self)
+    }
+
     pub fn new(
         #[cfg(feature = "integrated_tun")]
         #[cfg(target_os = "windows")]

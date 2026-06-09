@@ -91,6 +91,7 @@ pub fn parse_args_config() -> anyhow::Result<Option<(Config, Vec<String>, bool)>
     opts.optflag("", "list", "后台运行时,查看其他设备列表");
     opts.optflag("", "all", "后台运行时,查看其他设备完整信息");
     opts.optflag("", "info", "后台运行时,查看当前设备信息");
+    opts.optflag("", "hub", "后台运行时,查看控制台连接状态");
     opts.optflag("", "route", "后台运行时,查看数据转发路径");
     opts.optflag("", "chart_a", "后台运行时,查看流量统计");
     opts.optopt("", "chart_b", "后台运行时,查看流量统计", "<IP>");
@@ -121,6 +122,9 @@ pub fn parse_args_config() -> anyhow::Result<Option<(Config, Vec<String>, bool)>
         return Ok(None);
     } else if matches.opt_present("info") {
         command::command(command::CommandEnum::Info);
+        return Ok(None);
+    } else if matches.opt_present("hub") {
+        command::command(command::CommandEnum::Hub);
         return Ok(None);
     } else if matches.opt_present("stop") {
         command::command(command::CommandEnum::Stop);
@@ -400,6 +404,7 @@ fn get_description(key: &str, language: &str) -> String {
         ("--list", ("后台运行时,查看其他设备列表", "View list of other devices when running in background")),
         ("--all", ("后台运行时,查看其他设备完整信息", "View complete information of other devices when running in background")),
         ("--info", ("后台运行时,查看当前设备信息", "View information of current device when running in background")),
+        ("--hub", ("后台运行时,查看控制台连接状态", "View hub console status when running in background")),
         ("--route", ("后台运行时,查看数据转发路径", "View data forwarding path when running in background")),
         ("--chart_a", ("后台运行时,查看所有IP的流量统计", "View traffic statistics of all IPs when running in background")),
         ("--chart_b <IP>", ("后台运行时,查看单个IP的历史流量", "View historical traffic of a single IP when running in background")),
@@ -627,6 +632,10 @@ fn print_usage(program: &str, _opts: Options) {
         println!(
             "  --info              {}",
             yellow(get_description("--info", &language).to_string())
+        );
+        println!(
+            "  --hub               {}",
+            yellow(get_description("--hub", &language).to_string())
         );
         println!(
             "  --route             {}",

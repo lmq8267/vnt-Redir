@@ -66,3 +66,44 @@ pub struct ChartB {
     pub down_total: u64,
     pub down_list: Vec<usize>,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct HubInfo {
+    pub hub_mode: bool,
+    pub console_url: String,
+    pub room_id: String,
+    pub device_id: Option<String>,
+    pub device_name: String,
+    pub console_version: Option<String>,
+    pub connection_status: String,
+    pub config_name: Option<String>,
+    pub group_id: Option<String>,
+    pub config_version: Option<u32>,
+    pub config_received: bool,
+    pub config_running: bool,
+    pub server_address: Option<String>,
+    pub last_error: Option<String>,
+    pub updated_at: u64,
+}
+
+impl HubInfo {
+    pub fn not_hub() -> Self {
+        Self {
+            hub_mode: false,
+            console_url: String::new(),
+            room_id: String::new(),
+            device_id: None,
+            device_name: String::new(),
+            console_version: None,
+            connection_status: "not_hub".into(),
+            config_name: None,
+            group_id: None,
+            config_version: None,
+            config_received: false,
+            config_running: false,
+            server_address: None,
+            last_error: None,
+            updated_at: 0,
+        }
+    }
+}

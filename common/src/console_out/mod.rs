@@ -1,8 +1,9 @@
 use console::{style, Style};
 use std::collections::HashSet;
 use std::net::Ipv4Addr;
+use vnt::core::redact_sensitive_value;
 
-use crate::command::entity::{ChartA, ChartB, DeviceItem, Info, RouteItem};
+use crate::command::entity::{ChartA, ChartB, DeviceItem, HubInfo, Info, RouteItem};
 
 pub mod table;
 
@@ -62,6 +63,91 @@ pub fn console_info(status: Info) {
             println!("  {}/{}", Ipv4Addr::from(dest), mask.count_ones())
         }
     }
+}
+
+pub fn console_hub_info(info: HubInfo) {
+    if !info.hub_mode {
+        println!("Hub mode: {}", style("disabled").yellow());
+        return;
+    }
+    println!("Hub mode: {}", style("enabled").green());
+    println!("Console: {}", style(info.console_url).green());
+    println!("Room id: {}", style(info.room_id).green());
+    println!("Device name: {}", style(info.device_name).green());
+    println!(
+        "Device id: {}",
+        style(info.device_id.unwrap_or_else(|| "None".into())).green()
+    );
+    println!(
+        "Console version: {}",
+        style(info.console_version.unwrap_or_else(|| "Unknown".into())).green()
+    );
+    let status = info.connection_status;
+    if status.contains("connected") || status.contains("running") {
+        println!("Hub connection: {}", style(status).green());
+    } else {
+        println!("Hub connection: {}", style(status).red());
+    }
+    println!(
+        "Config name: {}",
+        style(info.config_name.unwrap_or_else(|| "None".into())).green()
+    );
+    println!(
+        "Group id: {}",
+        style(info.group_id.unwrap_or_else(|| "None".into())).green()
+    );
+    println!(
+        "Config version: {}",
+        style(
+            info.config_version
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "None".into())
+        )
+        .green()
+    );
+    println!(
+        "Config pushed: {}",
+        if info.config_received {
+            style("yes").green()
+        } else {
+            style("no").yellow()
+        }
+    );
+    println!(
+        "Config running: {}",
+        if info.config_running {
+            style("yes").green()
+        } else {
+            style("no").yellow()
+        }
+    );
+    println!(
+        "Server address: {}",
+        style(
+            info.server_address
+                .map(|value| redact_sensitive_value(&value))
+                .unwrap_or_else(|| "None".into())
+        )
+        .green()
+    );
+    if let Some(error) = info.last_error {
+        if !error.is_empty() {
+            println!("Last error: {}", style(error).red());
+        }
+    }
+}
+
+pub fn console_hub_command_unavailable(cmd: &str, info: HubInfo) {
+    console_hub_info(info);
+    println!("------------------------------------------");
+    println!(
+        "{}",
+        style(format!(
+            "'{}' is unavailable until hub config is pushed and running",
+            cmd
+        ))
+        .yellow()
+    );
 }
 
 fn convert(num: u64) -> String {

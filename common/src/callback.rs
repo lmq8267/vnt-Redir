@@ -1,10 +1,21 @@
 use std::process;
+use std::sync::Mutex;
 
 use console::style;
 use vnt::{ConnectInfo, ErrorInfo, ErrorType, HandshakeInfo, RegisterInfo, VntCallback};
 
 #[derive(Clone)]
 pub struct VntHandler {}
+
+struct CallbackPrintState {
+    last_handshake: Option<String>,
+    last_register: Option<String>,
+}
+
+static PRINT_STATE: Mutex<CallbackPrintState> = Mutex::new(CallbackPrintState {
+    last_handshake: None,
+    last_register: None,
+});
 
 impl VntCallback for VntHandler {
     fn success(&self) {
@@ -20,12 +31,22 @@ impl VntCallback for VntHandler {
     }
 
     fn handshake(&self, info: HandshakeInfo) -> bool {
-        println!("handshake {}", info);
+        let text = info.to_string();
+        let mut state = PRINT_STATE.lock().unwrap();
+        if state.last_handshake.as_deref() != Some(text.as_str()) {
+            println!("handshake {}", text);
+            state.last_handshake = Some(text);
+        }
         true
     }
 
     fn register(&self, info: RegisterInfo) -> bool {
-        println!("register {}", style(info).green());
+        let text = info.to_string();
+        let mut state = PRINT_STATE.lock().unwrap();
+        if state.last_register.as_deref() != Some(text.as_str()) {
+            println!("register {}", style(text.clone()).green());
+            state.last_register = Some(text);
+        }
         true
     }
 
